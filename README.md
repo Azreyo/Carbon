@@ -40,6 +40,12 @@ This is a simple HTTP server for linux operating system written in C. It support
 
     This command will use the provided `Makefile` to compile the source files, link the necessary libraries, and create the executable in the `bin` directory.
 
+	```bash
+	make clean
+	```
+
+	Cleanup of the unnecessary files after compiling
+
 4.  **Create `www` directory:**
 
     ```bash
