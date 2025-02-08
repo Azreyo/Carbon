@@ -23,7 +23,7 @@ This is a simple HTTP server for linux operating system written in C. It support
 
     ```bash
     git clone https://github.com/Azreyo/Http-server  
-    cd Http-server       
+    cd Http-server/
     ```
 
 3.  **Compile:**
@@ -31,7 +31,7 @@ This is a simple HTTP server for linux operating system written in C. It support
 	```bash
 	gcc server.c config_parser.c server_config.c -o server -lssl -lcrypto -lpthread -pthread -lcjson -lcjson -I/usr/include/cjson
 	```
-	Compile it in raw gcc
+	Compile it in gcc
 
 
     ```bash
@@ -66,5 +66,20 @@ This is a simple HTTP server for linux operating system written in C. It support
 
 ## Run Instructions
 
+1.  **Get IP address of your device that the program will run on:**
+```bash
+ip address
+```
+
+2.  **Enable port 8080 for ufw**
+
+```bash
+sudo ufw allow 8080 # 8080 is the default port
+```
+
+3.  **Run it and enjoy**
+
 ```bash
 ./bin/server  # Run the executable from the bin directory
+```
+
