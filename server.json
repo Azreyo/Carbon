@@ -1,0 +1,8 @@
+{
+    "port": 8080,
+    "use_https": false,
+    "log_file": "server.log",
+    "max_threads": 4,
+    "running": true,
+    "automatic_startup": false 
+  }
