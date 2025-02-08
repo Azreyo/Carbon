@@ -27,6 +27,11 @@ This is a simple HTTP server for linux operating system written in C. It support
     ```
 
 3.  **Compile:**
+	Compile it in raw gcc
+	```bash
+	gcc server.c config_parser.c server_config.c -o server -lssl -lcrypto -lpthread -pthread -lcjson -lcjson -I/usr/include/cjson
+	```
+
 
     ```bash
     make
