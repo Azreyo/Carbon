@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server Configuration Guide</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Server Configuration Guide</h1>
+        <nav>
+            <ul>
+                <li><a href="#http">HTTP link</a></li>
+                <li><a href="#https">HTTPS & SSL</a></li>
+                <li><a href="#security">Security</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <section id="http">
+            <h2>HTTP Configuration</h2>
+            <p>HTTP (HyperText Transfer Protocol) is the foundation of web communication.</p>
+            <button class="toggle-btn" href="https://en.wikipedia.org/wiki/HTTP">Read More</button>
+            <div class="content">
+                <p>To configure an HTTP server, ensure that your web server (e.g., Apache, Nginx) is set up properly.</p>
+                <pre><code># Apache example:
+<VirtualHost *:80>
+    ServerName example.com
+    DocumentRoot /var/www/html
+</VirtualHost></code></pre>
+            </div>
+        </section>
+
+        <section id="https">
+            <h2>HTTPS & SSL</h2>
+            <p>HTTPS secures communication by encrypting data using SSL/TLS.</p>
+            <button class="toggle-btn">Read More</button>
+            <div class="content">
+                <p>To enable HTTPS, you need an SSL certificate. Here's an example for Apache:</p>
+                <pre><code># Apache SSL configuration:
+<VirtualHost *:443>
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/certs/server.crt
+    SSLCertificateKeyFile /etc/ssl/private/server.key
+</VirtualHost></code></pre>
+            </div>
+        </section>
+
+        <section id="security">
+            <h2>Server Security</h2>
+            <p>Securing your server is crucial to prevent attacks.</p>
+            <button class="toggle-btn">Read More</button>
+            <div class="content">
+                <ul>
+                    <li>Disable unnecessary services.</li>
+                    <li>Use a firewall (iptables, UFW).</li>
+                    <li>Keep software updated.</li>
+                    <li>Enforce strong authentication.</li>
+                </ul>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Server Config Guide</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
