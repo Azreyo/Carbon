@@ -9,9 +9,12 @@ typedef struct {
     char log_file[256];
     int max_threads;
     bool running;
+	bool automatic_startup; //TODO func automatic startup on boot
 } ServerConfig;
 
 int load_config(const char *filename, ServerConfig *config);
 void init_config(ServerConfig *config);
+void log_event(const char *message);
+
 
 #endif
