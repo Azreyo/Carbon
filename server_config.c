@@ -8,4 +8,5 @@ void init_config(ServerConfig *config) {
     strcpy(config->log_file, "server.log");
     config->max_threads = 4;
     config->running = true;
+	config->automatic_startup = false;
 }
