@@ -1,8 +1,10 @@
 {
-    "port": 8080,
-    "use_https": false,
-    "log_file": "server.log",
+    "port": 80,
+    "use_https": true,
+	"server_path": "bin/server",
+	"config_path": "sever.json",
+    "log_file": "log/server.log",
     "max_threads": 4,
     "running": true,
-    "automatic_startup": false 
+	"server_name": "Your_domain"
   }
