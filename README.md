@@ -47,7 +47,7 @@ This section outlines potential features and improvements planned for future rel
 | Enhancement                 | Description                                      | Priority  | Completion |
 |-----------------------------|--------------------------------------------------|-----------|----------------------|
 | **Buffer Overflow Prevention**        | Implement comprehensive input validation to prevent injection attacks. | High      | ❌		|
-| **HTTPS Redirect**          | Automatically redirect HTTP traffic to HTTPS.   | High      | ❌|
+| **HTTPS Redirect**          | Automatically redirect HTTP traffic to HTTPS.   | High      | ✅|
 | **Security Audits**         | Conduct regular security audits and vulnerability assessments. | Medium    | ❌		|
 
 ### Community Contributions
@@ -112,12 +112,45 @@ This section outlines potential features and improvements planned for future rel
       "use_https": false,
       "log_file": "server.log",
       "max_threads": 4,
-      "running": true,
-	  "automatic_startup": false
+      "running": true
     }
     ```
 
     Adjust the values as needed.  `use_https` is not yet implemented.
+
+5.  **Create systemd automatic startup**
+
+```bash
+#!/bin/bash
+
+server_path=$(jq -r '.server_path' server.json)
+config_path=$(jq -r 'config_path' server.json)
+
+if [ ! -x "$server_path" ]; then
+	echo "Error: Server executable not found or not executable: $server_path"
+	exit 1
+fi
+
+if [ ! -f "$config_path" ]; then
+	echo "Error: Config file not found $config_path"
+	exit 1
+fi
+
+nohup "$server_path" --config "$config_path" &> server.log &
+
+echo "Server started in the background. Check server.log for output"
+
+exit 0
+```
+Code for automatic startup.
+
+```bash
+chmod +x start_server.sh
+./start_server.sh
+```
+
+Permissions `+x`.
+
 
 ## Run Instructions
 
