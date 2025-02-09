@@ -1,6 +1,8 @@
-# HTTP Server
+# Carbon HTTP Server
 
 This is a simple HTTP server for linux operating system written in C. It supports basic HTTP requests, logging, etc.
+NOTE: This program is being used as a fun projects to see limits of C. I'll be not responsible for any vulnerabilities.
+If you find vulnerabilities please report them.
 
 ## Features
 
@@ -9,6 +11,52 @@ This is a simple HTTP server for linux operating system written in C. It support
 *   Uses pthreads for concurrent client handling.
 *   Includes basic logging functionality with timestamps.
 *   Configuration is loaded from a JSON file (`server.json`).
+
+## Future development
+
+This section outlines potential features and improvements planned for future releases of the server.
+
+### Prioraty features
+
+| Enhancement                 | Description                                      | Priority  | Completion |
+|-----------------------------|--------------------------------------------------|-----------|----------------------|
+| **Basic HTTP and HTTPS server Functionality**        | Switching from HTTP to HTTPS | Medium      | ✅		|
+| **Logging Mechanism**        | Add logging mechanism for better error handleling | Low      | ✅		|
+| **SSL/TLS Support**          | Implement SSL/TLS Support for HTTP/s   | High      | ✅		|
+
+### Planned Features
+
+| Enhancement                 | Description                                      | Priority  | Completion |
+|-----------------------------|--------------------------------------------------|-----------|----------------------|
+| **WebSocket Support**        | Implement WebSocket protocol for real-time communication. | Medium      | ❌		|
+| **Rate Limiting**        | Add rate limiting to prevent abuse and DDoS attacks. | High      | ❌		|
+| **User Authentication**          | Implement user authentication for secure access to certain endpoints.   | High      | ❌|
+| **API Documentation**         | Create comprehensive API documentation using Swagger or similar tools. | Medium    | ❌		|
+| **Load Balancing**         | Support for load balancing across multiple server instances. | Low    | ❌		|
+
+### Performance Improvements
+
+| Enhancement                 | Description                                      | Priority  | Completion |
+|-----------------------------|--------------------------------------------------|-----------|----------------------|
+| **Connecting Pooling**        | Implement connection pooling to improve performance under load. | High      | ❌		|
+| **Asynchronous I/O**          | Use asynchronous I/O to handle more connections efficiently.   | Medium      | ❌|
+| **Caching Mechanism**         | Introduce caching for static resources to reduce server load. | Medium    | ❌		|
+
+### Security Enhancements
+
+| Enhancement                 | Description                                      | Priority  | Completion |
+|-----------------------------|--------------------------------------------------|-----------|----------------------|
+| **Buffer Overflow Prevention**        | Implement comprehensive input validation to prevent injection attacks. | High      | ❌		|
+| **HTTPS Redirect**          | Automatically redirect HTTP traffic to HTTPS.   | High      | ❌|
+| **Security Audits**         | Conduct regular security audits and vulnerability assessments. | Medium    | ❌		|
+
+### Community Contributions
+
+| Contribution Area           | Description                                      | Priority  | Notes                |
+|-----------------------------|--------------------------------------------------|-----------|----------------------|
+| **Documentation**           | Improve and expand documentation for developers and users. | Medium    | Open for contributions |
+| **Testing**                 | Create unit tests and integration tests for better coverage. | High      | Contributions welcome  |
+| **Feature Requests**        | Encourage users to submit feature requests and suggestions. | Low       | Use GitHub Issues     |
 
 ## Build Instructions
 
@@ -22,8 +70,8 @@ This is a simple HTTP server for linux operating system written in C. It support
 2.  **Clone the repository (optional):**
 
     ```bash
-    git clone https://github.com/Azreyo/Http-server  
-    cd Http-server/
+    git clone https://github.com/Azreyo/Carbon  
+    cd Carbon/
     ```
 
 3.  **Compile:**
@@ -44,7 +92,7 @@ This is a simple HTTP server for linux operating system written in C. It support
 	make clean
 	```
 
-	Cleanup of the unnecessary files after compiling
+	Cleanup of the unnecessary files after compiling.
 
 4.  **Create `www` directory:**
 
@@ -64,7 +112,8 @@ This is a simple HTTP server for linux operating system written in C. It support
       "use_https": false,
       "log_file": "server.log",
       "max_threads": 4,
-      "running": true
+      "running": true,
+	  "automatic_startup": false
     }
     ```
 
@@ -88,4 +137,22 @@ sudo ufw allow 8080 # 8080 is the default port
 ```bash
 ./bin/server  # Run the executable from the bin directory
 ```
+
+
+## For using HTTP/s
+
+```bash
+mkdir certs # Create certs folder
+cd certs
+```
+
+Create certs folder to create certificates to it.
+
+```bash
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
+```
+
+Generating pairs of keys `key.pem and` and `cert.pem` for 365 days.
+Note: its only self-signed browser may get Potential Security Risk.
+For further use on domains is recommended Let's encrypt.
 
