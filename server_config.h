@@ -9,7 +9,8 @@ typedef struct {
     char log_file[256];
     int max_threads;
     bool running;
-	bool automatic_startup; //TODO func automatic startup on boot
+    bool automatic_startup; //TODO func automatic startup on boot
+    char server_name[256];   // Add this field for server name
 } ServerConfig;
 
 int load_config(const char *filename, ServerConfig *config);
