@@ -9,4 +9,5 @@ void init_config(ServerConfig *config) {
     config->max_threads = 4;
     config->running = true;
 	config->automatic_startup = false;
+    config->verbose = 0;
 }
