@@ -1,191 +1,150 @@
 # Carbon HTTP Server
 
-This is a simple HTTP server for linux operating system written in C. It supports basic HTTP requests, logging, etc.
-NOTE: This program is being used as a fun projects to see limits of C. I'll be not responsible for any vulnerabilities.
-If you find vulnerabilities please report them.
+A high-performance HTTP/HTTPS server written in C for Linux systems, featuring advanced security, caching, and async I/O.
 
-## Features
+## Core Features
 
-*   Handles GET requests for static files.
-*   Supports a control menu for managing server status, logging, and configuration (currently basic).
-*   Uses pthreads for concurrent client handling.
-*   Includes basic logging functionality with timestamps.
-*   Configuration is loaded from a JSON file (`server.json`).
+- ✅ Multi-threaded HTTP/HTTPS server with epoll-based async I/O
+- ✅ SSL/TLS support with automatic HTTP to HTTPS redirection
+- ✅ Advanced rate limiting and DDoS protection
+- ✅ File caching system for improved performance
+- ✅ Thread pooling for efficient connection handling
+- ✅ Comprehensive security headers and MIME type detection
+- ✅ JSON-based configuration
+- ✅ Detailed logging system with rotation
 
-## Future development
+## Security Features
 
-This section outlines potential features and improvements planned for future releases of the server.
+- ✅ Buffer overflow prevention
+- ✅ Path traversal protection
+- ✅ Input sanitization
+- ✅ SSL/TLS with modern cipher suites
+- ✅ Security headers (CSP, HSTS, X-Frame-Options, etc.)
+- ✅ Rate limiting per IP
+- ✅ Automatic HTTPS redirection
 
-### Prioraty features
+## Performance Features
 
-| Enhancement                 | Description                                      | Priority  | Completion |
-|-----------------------------|--------------------------------------------------|-----------|----------------------|
-| **Basic HTTP and HTTPS server Functionality**        | Switching from HTTP to HTTPS | Medium      | ✅		|
-| **Logging Mechanism**        | Add logging mechanism for better error handleling | Low      | ✅		|
-| **SSL/TLS Support**          | Implement SSL/TLS Support for HTTP/s   | High      | ✅		|
-
-### Planned Features
-
-| Enhancement                 | Description                                      | Priority  | Completion |
-|-----------------------------|--------------------------------------------------|-----------|----------------------|
-| **WebSocket Support**        | Implement WebSocket protocol for real-time communication. | Medium      | ❌		|
-| **Rate Limiting**        | Add rate limiting to prevent abuse and DDoS attacks. | High      | ❌		|
-| **User Authentication**          | Implement user authentication for secure access to certain endpoints.   | High      | ❌|
-| **API Documentation**         | Create comprehensive API documentation using Swagger or similar tools. | Medium    | ❌		|
-| **Load Balancing**         | Support for load balancing across multiple server instances. | Low    | ❌		|
-
-### Performance Improvements
-
-| Enhancement                 | Description                                      | Priority  | Completion |
-|-----------------------------|--------------------------------------------------|-----------|----------------------|
-| **Connecting Pooling**        | Implement connection pooling to improve performance under load. | High      | ❌		|
-| **Asynchronous I/O**          | Use asynchronous I/O to handle more connections efficiently.   | Medium      | ❌|
-| **Caching Mechanism**         | Introduce caching for static resources to reduce server load. | Medium    | ❌		|
-
-### Security Enhancements
-
-| Enhancement                 | Description                                      | Priority  | Completion |
-|-----------------------------|--------------------------------------------------|-----------|----------------------|
-| **Buffer Overflow Prevention**        | Implement comprehensive input validation to prevent injection attacks. | High      | ❌		|
-| **HTTPS Redirect**          | Automatically redirect HTTP traffic to HTTPS.   | High      | ✅|
-| **Security Audits**         | Conduct regular security audits and vulnerability assessments. | Medium    | ❌		|
-
-### Community Contributions
-
-| Contribution Area           | Description                                      | Priority  | Notes                |
-|-----------------------------|--------------------------------------------------|-----------|----------------------|
-| **Documentation**           | Improve and expand documentation for developers and users. | Medium    | Open for contributions |
-| **Testing**                 | Create unit tests and integration tests for better coverage. | High      | Contributions welcome  |
-| **Feature Requests**        | Encourage users to submit feature requests and suggestions. | Low       | Use GitHub Issues     |
+- ✅ Epoll-based asynchronous I/O
+- ✅ Thread pool for connection handling
+- ✅ File caching system
+- ✅ SendFile() optimization for file transfers
+- ✅ Keep-alive connection support
+- ✅ TCP optimization (NODELAY, buffer sizes)
 
 ## Build Instructions
 
-1.  **Prerequisites:**
-    *   GCC compiler
-    *   Make (recommended)
-    *   OpenSSL libraries (`libssl`, `libcrypto`)
-    *   pthreads library
-    *   cJSON library
+### Prerequisites
 
-2.  **Clone the repository (optional):**
+```bash
+# Install required dependencies
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential \
+    libssl-dev \
+    libcjson-dev \
+    libmagic-dev \
+    pkg-config
+```
 
-    ```bash
-    git clone https://github.com/Azreyo/Carbon  
-    cd Carbon/
-    ```
+### Compilation
 
-3.  **Compile:**
+```bash
+# Using Make (recommended)
+make        # Normal build
+make debug  # Debug build
+make release # Optimized release build
 
-	```bash
-	gcc server.c config_parser.c server_config.c -o server -lssl -lcrypto -lpthread -pthread -lcjson -lcjson -I/usr/include/cjson
-	```
-	Compile it in gcc
+# Manual compilation
+gcc server.c config_parser.c server_config.c -o server \
+    -D_GNU_SOURCE \
+    -Wall -Wextra -O2 \
+    -lssl -lcrypto -lpthread -lmagic -lcjson
+```
 
+### SSL Certificate Setup
 
-    ```bash
-    make
-    ```
+```bash
+# Create certificates directory
+mkdir -p certs
 
-    This command will use the provided `Makefile` to compile the source files, link the necessary libraries, and create the executable in the `bin` directory.
+# Generate self-signed certificate
+openssl req -x509 -newkey rsa:2048 \
+    -keyout certs/key.pem \
+    -out certs/cert.pem \
+    -days 365 -nodes
+```
 
-	```bash
-	make clean
-	```
+### Configuration
 
-	Cleanup of the unnecessary files after compiling.
+Create `server.json`:
 
-4.  **Create `www` directory:**
-
-    ```bash
-    mkdir www
-    ```
-
-    Place your HTML files (e.g., `index.html`) inside the `www` directory.
-
-5.  **Create `server.json`:**
-
-    Create a `server.json` file in the same directory as the executable with the following structure:
-
-    ```json
-    {
-      "port": 8080,
-      "use_https": false,
-      "log_file": "server.log",
-      "max_threads": 4,
-      "running": true
+```json
+{
+    "port": 8080,
+    "use_https": true,
+    "log_file": "/var/log/carbon-server/server.log",
+    "verbose": true,
+    "max_threads": 32,
+    "cache_size": 100,
+    "rate_limit": {
+        "window": 60,
+        "max_requests": 100
     }
-    ```
-
-    Adjust the values as needed.  `use_https` is not yet implemented.
-
-5.  **Create systemd automatic startup**
-
-```bash
-#!/bin/bash
-
-server_path=$(jq -r '.server_path' server.json)
-config_path=$(jq -r 'config_path' server.json)
-
-if [ ! -x "$server_path" ]; then
-	echo "Error: Server executable not found or not executable: $server_path"
-	exit 1
-fi
-
-if [ ! -f "$config_path" ]; then
-	echo "Error: Config file not found $config_path"
-	exit 1
-fi
-
-nohup "$server_path" --config "$config_path" &> server.log &
-
-echo "Server started in the background. Check server.log for output"
-
-exit 0
-```
-Code for automatic startup.
-
-```bash
-chmod +x start_server.sh
-./start_server.sh
+}
 ```
 
-Permissions `+x`.
-
-
-## Run Instructions
-
-1.  **Get IP address of your device that the program will run on:**
-```bash
-ip address
-```
-
-2.  **Enable port 8080 for ufw**
+### Directory Structure
 
 ```bash
-sudo ufw allow 8080 # 8080 is the default port
+mkdir -p www/{css,js,images}
 ```
 
-3.  **Run it and enjoy**
+## Running the Server
 
 ```bash
-./bin/server  # Run the executable from the bin directory
+# Allow ports
+sudo ufw allow 8080/tcp  # HTTP
+sudo ufw allow 443/tcp   # HTTPS
+
+# Run the server
+./server
 ```
 
+## Planned Features
 
-## For using HTTP/s
+| Feature | Priority | Status |
+|---------|----------|--------|
+| WebSocket Support | Medium | ❌ |
+| User Authentication | High | ❌ |
+| API Documentation | Medium | ❌ |
+| Load Balancing | Low | ❌ |
+| Security Audits | Medium | ❌ |
 
-```bash
-mkdir certs # Create certs folder
-cd certs
-```
+## Contributing
 
-Create certs folder to create certificates to it.
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-```bash
-openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
-```
+## License
 
-Generating pairs of keys `key.pem and` and `cert.pem` for 365 days.
-Note: its only self-signed browser may get Potential Security Risk.
-For further use on domains is recommended Let's encrypt.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Security
+
+While this server implements various security measures, it's recommended to:
+- Use a reverse proxy (like Nginx) in production
+- Obtain proper SSL certificates (Let's Encrypt)
+- Regularly update dependencies
+- Monitor server logs
+- Conduct security audits
+
+## Acknowledgments
+
+- OpenSSL for SSL/TLS support
+- cJSON for configuration parsing
+- libmagic for MIME type detection
 
