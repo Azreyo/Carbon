@@ -1,0 +1,37 @@
+MIT License
+
+Copyright (c) 2024 Carbon HTTP Server
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+# Disclaimer
+
+This software is provided for educational and testing purposes only. The authors and contributors of Carbon HTTP Server:
+
+1. Make no warranty or representation, either express or implied, with respect to the software, its quality, accuracy, or fitness for a specific purpose.
+
+2. Do not claim that the software is free from errors or bugs.
+
+3. Are not liable for any direct, indirect, special, incidental, or consequential damages arising out of the use of or inability to use the software.
+
+4. Take no responsibility for any security vulnerabilities or potential attacks that may occur when using this software.
+
+5. Strongly recommend thorough testing and security auditing before using this software in any production environment.
+
+By using this software, you acknowledge and agree that you are doing so at your own risk and discretion.
