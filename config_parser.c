@@ -23,19 +23,26 @@ int load_config(const char *filename, ServerConfig *config) {
         return 1;
     }
 
-    fread(buffer, file_size, 1, fp);
+    size_t items_read = fread(buffer, file_size, 1, fp);
+    fclose(fp);  // Close file immediately after reading
+    
+    if (items_read != 1) {
+        perror("Error reading config file");
+        free(buffer);
+        return 1;
+    }
+
     buffer[file_size] = '\0';
-    fclose(fp);
 
     cJSON *root = cJSON_Parse(buffer);
-    free(buffer);
+    free(buffer);  // Free buffer after parsing
 
     if (!root) {
         const char *error_ptr = cJSON_GetErrorPtr();
         if (error_ptr != NULL) {
             fprintf(stderr, "Error before: %s\n", error_ptr);
         }
-        goto end;
+        return 1;
     }
 
     cJSON *port = cJSON_GetObjectItemCaseSensitive(root, "port");
@@ -94,7 +101,6 @@ int load_config(const char *filename, ServerConfig *config) {
     	strcpy(config->server_name, "192.168.1.1");  // Default IP address
 	}
 
-end:
     cJSON_Delete(root);
     return 0;
 }
