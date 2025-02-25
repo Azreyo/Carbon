@@ -82,7 +82,7 @@ Create `server.json`:
 ```json
 {
     "port": 8080,
-    "use_https": true,
+    "use_https": false,
     "log_file": "certs/server.log",
     "verbose": true,
     "max_threads": 32,
