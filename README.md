@@ -83,15 +83,14 @@ Create `server.json`:
 {
     "port": 8080,
     "use_https": false,
-    "log_file": "certs/server.log",
-    "verbose": true,
-    "max_threads": 32,
-    "cache_size": 100,
-    "rate_limit": {
-        "window": 60,
-        "max_requests": 100
-    }
-}
+	"server_path": "bin/server",
+	"config_path": "sever.json",
+    "log_file": "log/server.log",
+    "max_threads": 4,
+    "running": true,
+	"server_name": "Your_domain/IP",
+	"verbose": true
+  }
 ```
 
 ### Directory Structure
