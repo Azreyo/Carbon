@@ -3,7 +3,7 @@
     "use_https": true,
 	"server_path": "bin/server",
 	"config_path": "sever.json",
-    "log_file": "/var/log/http_server/server.log",
+    "log_file": "log/server.log",
     "max_threads": 4,
     "running": true,
 	"server_name": "Your_domain/IP",
