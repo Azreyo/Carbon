@@ -111,6 +111,7 @@ RateLimit *rate_limits = NULL;
 int rate_limit_count = 0;
 pthread_mutex_t rate_limit_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+void cleanup_thread_pool(void);
 void *handle_http_client(void *arg);
 void *handle_https_client(void *arg);
 void log_event(const char *message);
@@ -196,6 +197,7 @@ void set_socket_options(int socket_fd) {
 }
 
 void *start_http_server(void *arg) {
+	(void)arg;
     http_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (http_socket < 0) {
         perror(BOLD RED "Error creating HTTP socket" RESET);
@@ -294,6 +296,7 @@ void *start_http_server(void *arg) {
 
 
 void *start_https_server(void *arg) {
+	(void)arg;
     https_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (https_socket < 0) {
         perror(BOLD RED "Error creating HTTPS socket" RESET);
