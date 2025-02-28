@@ -130,7 +130,8 @@ sudo ufw allow 443/tcp   # HTTPS
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [License](LICENSE) View our license terms
+ file for details.
 
 ## Security
 
