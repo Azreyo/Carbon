@@ -1,16 +1,34 @@
-MIT License
+MIT License (Modified - Non-Commercial)
 
-Copyright (c) 2024 Carbon HTTP Server
+Copyright (c) 2025 Carbon HTTP Server
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+to use, copy, modify, merge, publish, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
+1. The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
+
+2. Distribution, sale, or any commercial use of the Software is strictly prohibited 
+without explicit written permission from the copyright holders (Carbon HTTP Server). 
+This includes but is not limited to:
+   - Selling the Software or derivatives of it
+   - Incorporating the Software into commercial products
+   - Distributing the Software as part of a commercial service
+   - Using the Software in a commercial environment
+   - Reselling or redistributing commercial licenses
+   - Using the Software to provide commercial hosting services
+   - Creating derivative works for commercial purposes
+   - Training commercial AI models with the code
+
+3. Any granted commercial licenses are non-transferable and require written approval
+from Carbon HTTP Server.
+
+4. Any modifications or derivative works must also be licensed under the same terms
+and conditions of this license.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -35,3 +53,14 @@ This software is provided for educational and testing purposes only. The authors
 5. Strongly recommend thorough testing and security auditing before using this software in any production environment.
 
 By using this software, you acknowledge and agree that you are doing so at your own risk and discretion.
+
+# Additional Terms
+
+1. Any attempt to circumvent these license terms or unauthorized commercial use 
+will result in immediate termination of all rights granted under this license.
+
+2. The copyright holders reserve the right to modify these license terms at any time 
+with notice to users through the project's repository.
+
+By using this software, you acknowledge and agree that you are doing so at your own 
+risk and discretion, and accept all terms and conditions stated above.
