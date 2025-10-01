@@ -10,4 +10,5 @@ void init_config(ServerConfig *config) {
     config->running = true;
 	config->automatic_startup = false;
     config->verbose = 0;
+    strcpy(config->server_name, "127.0.0.1");
 }

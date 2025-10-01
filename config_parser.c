@@ -91,16 +91,18 @@ int load_config(const char *filename, ServerConfig *config) {
         config->running = true; 
 	}
 
-	cJSON *server_name = cJSON_GetObjectItemCaseSensitive(root, "server_name");
-	if (cJSON_IsString(server_name) && (server_name->valuestring != NULL)) {
-    	strncpy(config->server_name, server_name->valuestring, sizeof(config->server_name) - 1);
-    	config->server_name[sizeof(config->server_name) - 1] = '\0';
-    	printf("load_config: server_name = %s\n", config->server_name);
-	} else {
-    	fprintf(stderr, "load_config: server_name not found or not a string. Using default.\n");
-    	strcpy(config->server_name, "192.168.1.1");  // Default IP address
-	}
-
+    cJSON *server_name = cJSON_GetObjectItemCaseSensitive(root, "server_name");
+    if (cJSON_IsString(server_name) && (server_name->valuestring != NULL)) {
+        strncpy(config->server_name, server_name->valuestring, sizeof(config->server_name) - 1);
+        config->server_name[sizeof(config->server_name) - 1] = '\0';
+        printf("load_config: server_name = %s\n", config->server_name);
+        if (strcmp(config->server_name, "Your_domain/IP") == 0) {
+            fprintf(stderr, "WARNING: server_name is set to 127.0.0.1\nPlease set server_name in server.json to the server's IP address or domain name for proper operation.\n");
+        }
+    } else {
+        fprintf(stderr, "load_config: server_name not found or not a string. Using default.\n");
+        strcpy(config->server_name, "127.0.0.1");
+    }
     cJSON_Delete(root);
     return 0;
 }
