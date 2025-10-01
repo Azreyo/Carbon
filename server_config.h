@@ -11,7 +11,7 @@ typedef struct {
     bool running;
     bool automatic_startup;
     char server_name[256];   
-    int verbose;  
+    int verbose;
 } ServerConfig;
 
 int load_config(const char *filename, ServerConfig *config);
