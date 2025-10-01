@@ -141,8 +141,6 @@ Create or edit `server.json` in the project root:
 {
     "port": 8080,
     "use_https": false,
-    "server_path": "bin/server",
-    "config_path": "server.json",
     "log_file": "log/server.log",
     "max_threads": 4,
     "running": true,
