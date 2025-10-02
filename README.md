@@ -137,27 +137,47 @@ openssl req -x509 -newkey rsa:2048 \
 
 ### Server Configuration
 
-Create or edit `server.json` in the project root:
+Create or edit `server.conf` in the project root. Carbon uses a traditional Linux-style configuration format with `key = value` pairs:
 
-```json
-{
-    "port": 8080,
-    "use_https": false,
-    "log_file": "log/server.log",
-    "max_threads": 4,
-    "running": true,
-    "server_name": "localhost",
-    "verbose": true
-}
+```conf
+# Carbon Web Server Configuration File
+# Lines starting with # are comments
+
+# Server listening port
+port = 8080
+
+# Enable HTTPS (requires valid certificates in certs/ directory)
+use_https = false
+
+# Log file location
+log_file = log/server.log
+
+# Maximum number of worker threads
+max_threads = 4
+
+# Server running state
+running = true
+
+# Server name or IP address (used for logging and response headers)
+server_name = localhost
+
+# Enable verbose logging
+verbose = true
 ```
 
 **Configuration Options:**
 - `port`: HTTP port (default: 8080)
-- `use_https`: Enable HTTPS (requires SSL certificates)
+- `use_https`: Enable HTTPS - accepts: true/false, yes/no, on/off, 1/0 (requires SSL certificates)
 - `log_file`: Path to log file
 - `max_threads`: Number of worker threads
 - `server_name`: Your domain or IP address
-- `verbose`: Enable detailed logging
+- `verbose`: Enable detailed logging - accepts: true/false, yes/no, on/off, 1/0
+
+**Note:** Boolean values are flexible and accept multiple formats:
+- True: `true`, `yes`, `on`, `1`
+- False: `false`, `no`, `off`, `0`
+
+Values can optionally be quoted with single or double quotes.
 
 ### Directory Structure
 
@@ -215,12 +235,13 @@ curl -k https://localhost:443
 
 ```
 Carbon/
-├── server.c              # Main server implementation
-├── server_config.c       # Configuration management
-├── server_config.h       # Configuration headers
-├── config_parser.c       # JSON configuration parser
+├── src/
+│   ├── server.c          # Main server implementation
+│   ├── server_config.c   # Configuration management
+│   ├── server_config.h   # Configuration headers
+│   └── config_parser.c   # Configuration file parser
 ├── Makefile              # Build configuration
-├── server.json           # Server configuration file
+├── server.conf           # Server configuration file (Linux-style)
 ├── README.md             # This file
 ├── LICENSE               # MIT License
 ├── certs/                # SSL certificates (create this)

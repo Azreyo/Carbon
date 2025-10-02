@@ -8,7 +8,6 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <cJSON.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <errno.h>
@@ -778,7 +777,7 @@ void signal_handler(int sig) {
 }
 
 int main() {
-    if (load_config("server.json", &config) != 0) {
+    if (load_config("server.conf", &config) != 0) {
         printf("Using default configuration.\n");
     }
 

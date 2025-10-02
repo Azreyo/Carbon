@@ -11,18 +11,18 @@ NC := \033[0m
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -D_GNU_SOURCE
 LDFLAGS = -pthread
-LIBS = -lssl -lcrypto -lcjson -lmagic
+LIBS = -lssl -lcrypto -lmagic
 
 # Source files and object files
-SRCS = server.c config_parser.c server_config.c
+SRCS = src/server.c src/config_parser.c src/server_config.c
 OBJS = $(SRCS:.c=.o)
 TARGET = server
 
 # Header files
-HEADERS = server_config.h
+HEADERS = src/server_config.h
 
 # Include directories
-INCLUDES = -I/usr/include/cjson
+INCLUDES =
 
 # Count total number of source files
 TOTAL_FILES := $(words $(SRCS))
