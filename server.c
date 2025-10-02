@@ -328,8 +328,12 @@ void *start_https_server(void *arg) {
     while (config.running && server_running) {
         int client_socket = accept(https_socket, NULL, NULL);
         if (client_socket < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                usleep(10000);
+                continue;
+            }
             perror("Error accepting HTTPS connection");
-            continue;
+            break;
         }
 
         pthread_mutex_lock(&thread_count_mutex);
@@ -383,14 +387,24 @@ void *handle_http_client(void *arg) {
         }
 
         if (config.use_https) {  // Check if HTTPS is enabled
-            char redirect_response[512];
-            snprintf(redirect_response, sizeof(redirect_response),
+            size_t needed = snprintf(NULL, 0,
                      "HTTP/1.1 301 Moved Permanently\r\n"
-                     "Location: https://%.255s%.255s\r\n\r\n", config.server_name, url);
-            send(client_socket, redirect_response, strlen(redirect_response), 0);
-            log_event("Redirecting to HTTPS"); // Log the redirection
+                     "Location: https://%s%s\r\n\r\n",
+                     config.server_name, url) + 1;
+    
+            char *redirect_response = malloc(needed);
+            if (redirect_response) {
+                snprintf(redirect_response, needed,
+                 "HTTP/1.1 301 Moved Permanently\r\n"
+                 "Location: https://%s%s\r\n\r\n",
+                 config.server_name, url);
+                send(client_socket, redirect_response, strlen(redirect_response), 0);
+                free(redirect_response);
+            }
+            log_event("Redirecting to HTTPS");
             close(client_socket);
             return NULL;
+
         }
 
         char *sanitized_url = sanitize_url(url);
@@ -503,6 +517,18 @@ void *handle_https_client(void *arg) {
         ERR_print_errors_fp(stderr);
         log_event("SSL handshake failed.");
         SSL_free(ssl); // Free SSL context on failure
+        close(client_socket);
+        pthread_exit(NULL);
+    }
+
+    if (SSL_accept(ssl) <= 0) {
+        int ssl_error = SSL_get_error(ssl, -1);
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg),
+                "SSL handshake failed. SSL error code: %d", ssl_error);
+        log_event(error_msg);
+        ERR_print_errors_fp(stderr);
+        SSL_free(ssl);
         close(client_socket);
         pthread_exit(NULL);
     }
@@ -634,6 +660,7 @@ cleanup:
 
 void shutdown_server() {
     log_event("Initiating server shutdown...");
+
     
     // Set shutdown flags atomically
     __atomic_store_n(&server_running, 0, __ATOMIC_SEQ_CST);
@@ -723,26 +750,24 @@ int parse_request_line(char *request_buffer, char *method, char *url, char *prot
 
 void signal_handler(int sig) {
     if (sig == SIGINT || sig == SIGTERM) {
-        printf("\nReceived signal %d, initiating shutdown...\n", sig);
-        
-        // Set shutdown flags first
         server_running = 0;
         config.running = 0;
-        
-        // Force close listening sockets to unblock accept()
-        if (http_socket != -1) {
-            shutdown(http_socket, SHUT_RDWR);
-            close(http_socket);
-            http_socket = -1;
+        if(config.use_https && config.running == 0 && server_running == 0){
+            if (https_socket != -1) {
+                shutdown(https_socket, SHUT_RDWR);
+                close(https_socket);
+                https_socket = -1;
+                exit(EXIT_SUCCESS); }
+        } else {
+            if (http_socket != -1) {
+                shutdown(http_socket, SHUT_RDWR);
+                close(http_socket);
+                http_socket = -1;
+                exit(EXIT_SUCCESS); }
         }
-        
-        if (https_socket != -1) {
-            shutdown(https_socket, SHUT_RDWR);
-            close(https_socket);
-            https_socket = -1;
-        }
-        
-        // Close epoll fd to unblock epoll_wait
+
+        printf("\nReceived signal %d, initiating shutdown...\n", sig);
+
         if (epoll_fd != -1) {
             close(epoll_fd);
             epoll_fd = -1;
@@ -1031,7 +1056,12 @@ int check_rate_limit(const char *ip) {
     
     // Add new entry
     rate_limits = realloc(rate_limits, (rate_limit_count + 1) * sizeof(RateLimit));
-    strncpy(rate_limits[rate_limit_count].ip, ip, INET_ADDRSTRLEN);
+    size_t ip_len = strlen(ip);
+    if (ip_len >= INET_ADDRSTRLEN) {
+        ip_len = INET_ADDRSTRLEN - 1;
+    }
+    memcpy(rate_limits[rate_limit_count].ip, ip, ip_len);
+    rate_limits[rate_limit_count].ip[ip_len] = '\0';
     rate_limits[rate_limit_count].window_start = now;
     rate_limits[rate_limit_count].request_count = 1;
     rate_limit_count++;
