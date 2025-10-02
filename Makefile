@@ -11,15 +11,15 @@ NC := \033[0m
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -D_GNU_SOURCE
 LDFLAGS = -pthread
-LIBS = -lssl -lcrypto -lmagic
+LIBS = -lssl -lcrypto -lmagic -lnghttp2
 
 # Source files and object files
-SRCS = src/server.c src/config_parser.c src/server_config.c
+SRCS = src/server.c src/config_parser.c src/server_config.c src/websocket.c src/http2.c
 OBJS = $(SRCS:.c=.o)
 TARGET = server
 
 # Header files
-HEADERS = src/server_config.h
+HEADERS = src/server_config.h src/websocket.h
 
 # Include directories
 INCLUDES =

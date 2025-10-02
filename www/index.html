@@ -3,70 +3,422 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Server Configuration Guide</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Carbon Server - It works!</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+            min-height: 100vh;
+        }
+        
+        header {
+            border-bottom: 3px solid #dc3545;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            color: #dc3545;
+            font-size: 2.5em;
+            font-weight: 300;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            font-size: 1.2em;
+            font-weight: 300;
+        }
+        
+        .success-box {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-left: 4px solid #28a745;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .success-box h2 {
+            color: #155724;
+            font-size: 1.3em;
+            margin-bottom: 10px;
+        }
+        
+        .success-box p {
+            color: #155724;
+            margin: 0;
+        }
+        
+        section {
+            margin: 30px 0;
+        }
+        
+        h2 {
+            color: #333;
+            font-size: 1.8em;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 10px;
+        }
+        
+        h3 {
+            color: #555;
+            font-size: 1.3em;
+            margin: 20px 0 10px 0;
+        }
+        
+        p {
+            margin: 10px 0;
+        }
+        
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #e83e8c;
+        }
+        
+        pre {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-left: 4px solid #007bff;
+            padding: 15px;
+            margin: 15px 0;
+            overflow-x: auto;
+            border-radius: 4px;
+        }
+        
+        pre code {
+            background: none;
+            padding: 0;
+            color: #333;
+        }
+        
+        .info-box {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-left: 4px solid #17a2b8;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .info-box strong {
+            color: #0c5460;
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-left: 4px solid #ffc107;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .warning-box strong {
+            color: #856404;
+        }
+        
+        ul {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        
+        li {
+            margin: 8px 0;
+        }
+        
+        a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        .button {
+            display: inline-block;
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            text-decoration: none;
+            margin: 10px 10px 10px 0;
+            transition: 0.3s;
+        }
+        
+        .button:hover {
+            background: #0056b3;
+            text-decoration: none;
+        }
+        
+        .button.secondary {
+            background: #6c757d;
+        }
+        
+        .button.secondary:hover {
+            background: #545b62;
+        }
+        
+        footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+            color: #666;
+            font-size: 0.9em;
+            text-align: center;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .feature {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 3px solid #007bff;
+        }
+        
+        .feature h4 {
+            color: #007bff;
+            margin-bottom: 8px;
+        }
+    </style>
 </head>
 <body>
-    <header>
-        <h1>Server Configuration Guide</h1>
-        <nav>
+    <div class="container">
+        <header>
+            <h1>🔥 Carbon Web Server</h1>
+            <p class="subtitle">High-Performance HTTP/HTTPS Server with WebSocket Support</p>
+        </header>
+
+        <div class="success-box">
+            <h2>✓ It works!</h2>
+            <p>The Carbon web server is installed and running successfully. This is the default page that is displayed when the server is working correctly.</p>
+        </div>
+
+        <section>
+            <h2>About This Server</h2>
+            <p>Carbon is a high-performance, production-ready HTTP/HTTPS server written in C for Linux systems. It features modern web technologies including WebSocket support, SSL/TLS encryption, and comprehensive security measures.</p>
+            
+            <div class="features">
+                <div class="feature">
+                    <h4>⚡ High Performance</h4>
+                    <p>Epoll-based async I/O, zero-copy file transfers, and thread pooling</p>
+                </div>
+                <div class="feature">
+                    <h4>🔒 Secure by Default</h4>
+                    <p>SSL/TLS support, rate limiting, security headers, and input sanitization</p>
+                </div>
+                <div class="feature">
+                    <h4>🌐 WebSocket Ready</h4>
+                    <p>Full RFC 6455 compliant WebSocket implementation for real-time apps</p>
+                </div>
+                <div class="feature">
+                    <h4>🛠️ Easy Configuration</h4>
+                    <p>Simple Linux-style configuration file with comments</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Quick Links</h2>
+            <a href="/websocket-test.html" class="button">Test WebSocket</a>
+            <a href="https://github.com/Azreyo/Carbon" class="button secondary">Documentation</a>
+        </section>
+
+        <section>
+            <h2>Configuration</h2>
+            <p>The server is configured through the <code>server.conf</code> file located in the server root directory.</p>
+            
+            <h3>Basic Configuration Example</h3>
+            <pre><code># Carbon Web Server Configuration File
+
+# Server listening port
+port = 8080
+
+# Enable HTTPS (requires valid certificates in certs/ directory)
+use_https = false
+
+# Log file location
+log_file = log/server.log
+
+# Maximum number of worker threads
+max_threads = 4
+
+# Server name or IP address
+server_name = localhost
+
+# Enable verbose logging
+verbose = true
+
+# Enable WebSocket support
+enable_websocket = true</code></pre>
+
+            <div class="info-box">
+                <strong>Note:</strong> After modifying the configuration file, restart the server for changes to take effect.
+            </div>
+        </section>
+
+        <section>
+            <h2>Enabling HTTPS</h2>
+            <p>To enable HTTPS support, you'll need SSL certificates. You can use self-signed certificates for testing or obtain certificates from Let's Encrypt for production.</p>
+            
+            <h3>Generate Self-Signed Certificates (Testing Only)</h3>
+            <pre><code># Create certificates directory
+mkdir -p certs
+
+# Generate self-signed certificate
+openssl req -x509 -newkey rsa:4096 -nodes \
+    -keyout certs/key.pem \
+    -out certs/cert.pem \
+    -days 365 \
+    -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"</code></pre>
+            
+            <h3>Enable HTTPS in Configuration</h3>
+            <pre><code># Edit server.conf
+use_https = true</code></pre>
+            
+            <div class="warning-box">
+                <strong>Warning:</strong> Self-signed certificates will show security warnings in browsers. For production, use certificates from a trusted Certificate Authority like Let's Encrypt.
+            </div>
+        </section>
+
+        <section>
+            <h2>WebSocket Support</h2>
+            <p>Carbon includes full WebSocket support (RFC 6455 compliant) for building real-time applications.</p>
+            
+            <h3>Test WebSocket Connection</h3>
+            <p>Use the built-in test client:</p>
+            <pre><code># Browser
+http://localhost:8080/websocket-test.html
+
+# Command line (requires wscat: npm install -g wscat)
+wscat -c ws://localhost:8080
+
+# Secure WebSocket (if HTTPS enabled)
+wscat -c wss://localhost:443</code></pre>
+            
+            <h3>JavaScript Example</h3>
+            <pre><code>// Connect to WebSocket server
+const ws = new WebSocket('ws://localhost:8080');
+
+// Connection opened
+ws.addEventListener('open', (event) => {
+    console.log('Connected!');
+    ws.send('Hello Server!');
+});
+
+// Listen for messages
+ws.addEventListener('message', (event) => {
+    console.log('Received:', event.data);
+});</code></pre>
+        </section>
+
+        <section>
+            <h2>Directory Structure</h2>
+            <p>Understanding the server directory layout:</p>
             <ul>
-                <li><a href="#http">HTTP link</a></li>
-                <li><a href="#https">HTTPS & SSL</a></li>
-                <li><a href="#security">Security</a></li>
+                <li><code>www/</code> - Web root directory (place your HTML, CSS, JS files here)</li>
+                <li><code>certs/</code> - SSL certificate files (cert.pem, key.pem)</li>
+                <li><code>log/</code> - Server log files</li>
+                <li><code>server.conf</code> - Main configuration file</li>
+                <li><code>server</code> - Server executable</li>
             </ul>
-        </nav>
-    </header>
-
-    <main>
-        <section id="http">
-            <h2>HTTP Configuration</h2>
-            <p>HTTP (HyperText Transfer Protocol) is the foundation of web communication.</p>
-            <button class="toggle-btn" href="https://en.wikipedia.org/wiki/HTTP">Read More</button>
-            <div class="content">
-                <p>To configure an HTTP server, ensure that your web server (e.g., Apache, Nginx) is set up properly.</p>
-                <pre><code># Apache example:
-<VirtualHost *:80>
-    ServerName example.com
-    DocumentRoot /var/www/html
-</VirtualHost></code></pre>
-            </div>
         </section>
 
-        <section id="https">
-            <h2>HTTPS & SSL</h2>
-            <p>HTTPS secures communication by encrypting data using SSL/TLS.</p>
-            <button class="toggle-btn">Read More</button>
-            <div class="content">
-                <p>To enable HTTPS, you need an SSL certificate. Here's an example for Apache:</p>
-                <pre><code># Apache SSL configuration:
-<VirtualHost *:443>
-    SSLEngine on
-    SSLCertificateFile /etc/ssl/certs/server.crt
-    SSLCertificateKeyFile /etc/ssl/private/server.key
-</VirtualHost></code></pre>
-            </div>
+        <section>
+            <h2>Common Tasks</h2>
+            
+            <h3>Start the Server</h3>
+            <pre><code>./server</code></pre>
+            
+            <h3>Stop the Server</h3>
+            <pre><code># Press Ctrl+C in the server terminal
+# Or send SIGTERM signal
+kill -TERM $(pgrep -f './server')</code></pre>
+            
+            <h3>View Logs</h3>
+            <pre><code>tail -f log/server.log</code></pre>
+            
+            <h3>Test HTTP Connection</h3>
+            <pre><code>curl http://localhost:8080</code></pre>
+            
+            <h3>Rebuild After Code Changes</h3>
+            <pre><code>make clean && make</code></pre>
         </section>
 
-        <section id="security">
-            <h2>Server Security</h2>
-            <p>Securing your server is crucial to prevent attacks.</p>
-            <button class="toggle-btn">Read More</button>
-            <div class="content">
-                <ul>
-                    <li>Disable unnecessary services.</li>
-                    <li>Use a firewall (iptables, UFW).</li>
-                    <li>Keep software updated.</li>
-                    <li>Enforce strong authentication.</li>
-                </ul>
-            </div>
+        <section>
+            <h2>Troubleshooting</h2>
+            
+            <h3>Port Already in Use</h3>
+            <p>If you see "Address already in use" errors:</p>
+            <pre><code># Find process using port 8080
+sudo lsof -i :8080
+
+# Or
+sudo netstat -tulpn | grep 8080
+
+# Kill the process
+kill -9 &lt;PID&gt;</code></pre>
+            
+            <h3>Permission Denied for Port 443</h3>
+            <p>Ports below 1024 require root privileges:</p>
+            <pre><code># Option 1: Run as root (not recommended for production)
+sudo ./server
+
+# Option 2: Use setcap to grant capability
+sudo setcap 'cap_net_bind_service=+ep' ./server
+./server</code></pre>
+            
+            <h3>WebSocket Connection Failed</h3>
+            <ul>
+                <li>Ensure <code>enable_websocket = true</code> in server.conf</li>
+                <li>Use <code>ws://</code> for HTTP and <code>wss://</code> for HTTPS</li>
+                <li>Check browser console (F12) for detailed error messages</li>
+                <li>Verify server logs for connection attempts</li>
+            </ul>
         </section>
-    </main>
 
-    <footer>
-        <p>&copy; 2025 Server Config Guide</p>
-    </footer>
+        <section>
+            <h2>Security Best Practices</h2>
+            <ul>
+                <li><strong>Use HTTPS:</strong> Always enable HTTPS for production deployments</li>
+                <li><strong>Firewall Configuration:</strong> Use UFW or iptables to restrict access</li>
+                <li><strong>Rate Limiting:</strong> Enabled by default to prevent abuse</li>
+                <li><strong>Regular Updates:</strong> Keep the server and dependencies updated</li>
+                <li><strong>Log Monitoring:</strong> Regularly check logs for suspicious activity</li>
+                <li><strong>Strong Certificates:</strong> Use proper SSL certificates from trusted CAs</li>
+            </ul>
+        </section>
 
-    <script src="script.js"></script>
+        <footer>
+            <p><strong>Carbon Web Server</strong> | <a href="https://github.com/Azreyo/Carbon">GitHub Repository</a> | Licensed under MIT</p>
+            <p>If you can see this page, the server is working correctly.</p>
+        </footer>
+    </div>
 </body>
 </html>

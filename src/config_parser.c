@@ -115,6 +115,14 @@ int load_config(const char *filename, ServerConfig *config) {
             config->verbose = parse_bool(value);
             printf("load_config: verbose = %d\n", config->verbose);
         }
+        else if (strcasecmp(key, "enable_http2") == 0) {
+            config->enable_http2 = parse_bool(value);
+            printf("load_config: enable_http2 = %d\n", config->enable_http2);
+        }
+        else if (strcasecmp(key, "enable_websocket") == 0) {
+            config->enable_websocket = parse_bool(value);
+            printf("load_config: enable_websocket = %d\n", config->enable_websocket);
+        }
         else {
             fprintf(stderr, "Warning: Unknown config option '%s' on line %d\n", key, line_number);
         }

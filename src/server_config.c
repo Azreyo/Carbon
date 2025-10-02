@@ -11,4 +11,6 @@ void init_config(ServerConfig *config) {
 	config->automatic_startup = false;
     config->verbose = 0;
     strcpy(config->server_name, "127.0.0.1");
+    config->enable_http2 = false;
+    config->enable_websocket = false;
 }
