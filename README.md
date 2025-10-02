@@ -11,6 +11,8 @@
 
 *Features advanced security, caching, and asynchronous I/O capabilities*
 
+> **⚠️ WORK IN PROGRESS**: This project is currently under active development and is not yet a full release. Features may be incomplete, APIs may change, and bugs may be present. Use in production environments at your own risk.
+
 [Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Usage](#-usage) • [Contributing](#-contributing) • [License](#-license)
 
 </div>
