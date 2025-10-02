@@ -21,6 +21,8 @@
 #include <sys/sendfile.h>
 
 #include "server_config.h"
+#include "websocket.h"
+#include "http2.h"
 
 #define MAX_REQUEST_SIZE 8192
 #define MAX_LOG_SIZE 2048
@@ -167,6 +169,12 @@ void configure_ssl_context(SSL_CTX *ctx) {
 	if (SSL_CTX_set_cipher_list(ctx, "HIGH: !aNULL: !MD5") != 1) {
 		ERR_print_errors_fp(stderr);
 		exit(EXIT_FAILURE);
+	}
+	
+	// Enable HTTP/2 ALPN if configured
+	if (config.enable_http2) {
+	    SSL_CTX_set_alpn_select_cb(ctx, alpn_select_proto_cb, NULL);
+	    log_event("HTTP/2 ALPN enabled");
 	}
 }
 
@@ -359,22 +367,140 @@ void *start_https_server(void *arg) {
     pthread_exit(NULL);
 }
 
+// Check if request is a WebSocket upgrade request
+static int is_websocket_upgrade(const char *request) {
+    // Make a lowercase copy for case-insensitive comparison
+    char *request_lower = strdup(request);
+    if (!request_lower) return 0;
+    
+    for (char *p = request_lower; *p; p++) {
+        *p = tolower((unsigned char)*p);
+    }
+    
+    // Check for "upgrade: websocket" and "connection:" containing "upgrade"
+    int has_upgrade = strstr(request_lower, "upgrade: websocket") != NULL;
+    int has_connection = strstr(request_lower, "connection:") != NULL &&
+                         strstr(request_lower, "upgrade") != NULL;
+    
+    free(request_lower);
+    return has_upgrade && has_connection;
+}
+
+// Handle WebSocket connection
+static void *handle_websocket(void *arg) {
+    ws_connection_t *conn = (ws_connection_t *)arg;
+    
+    log_event("WebSocket connection established");
+    
+    uint8_t buffer[65536];
+    while (server_running && config.running) {
+        ssize_t bytes_received;
+        
+        if (conn->is_ssl) {
+            bytes_received = SSL_read(conn->ssl, buffer, sizeof(buffer));
+        } else {
+            bytes_received = recv(conn->socket_fd, buffer, sizeof(buffer), 0);
+        }
+        
+        if (bytes_received <= 0) {
+            break;
+        }
+        
+        ws_frame_header_t header;
+        uint8_t *payload = NULL;
+        int parsed = ws_parse_frame(buffer, bytes_received, &header, &payload);
+        
+        if (parsed < 0) {
+            log_event("Failed to parse WebSocket frame");
+            free(payload);
+            break;
+        }
+        
+        switch (header.opcode) {
+            case WS_OPCODE_TEXT:
+                if (ws_is_valid_utf8(payload, header.payload_length)) {
+                    // Echo back the text message
+                    ws_send_text(conn, (const char *)payload);
+                    log_event("WebSocket text frame received and echoed");
+                } else {
+                    log_event("Invalid UTF-8 in text frame");
+                }
+                break;
+                
+            case WS_OPCODE_BINARY:
+                // Echo back binary data
+                ws_send_frame(conn, WS_OPCODE_BINARY, payload, header.payload_length);
+                log_event("WebSocket binary frame received and echoed");
+                break;
+                
+            case WS_OPCODE_PING:
+                ws_send_pong(conn, payload, header.payload_length);
+                log_event("WebSocket ping received, pong sent");
+                break;
+                
+            case WS_OPCODE_CLOSE:
+                log_event("WebSocket close frame received");
+                free(payload);
+                ws_close_connection(conn, 1000);
+                free(conn);
+                pthread_exit(NULL);
+                
+            default:
+                break;
+        }
+        
+        free(payload);
+    }
+    
+    ws_close_connection(conn, 1000);
+    free(conn);
+    pthread_exit(NULL);
+}
 
 void *handle_http_client(void *arg) {
     int client_socket = *((int *)arg);
     free(arg);
 
-    char request_buffer[MAX_REQUEST_SIZE];
-    ssize_t bytes_received = recv(client_socket, request_buffer, MAX_REQUEST_SIZE - 1, 0);
-
     if (!server_running) {
-        close(client_socket); // Close socket before exiting
+        close(client_socket);
         pthread_exit(NULL);
     }
+
+    char request_buffer[MAX_REQUEST_SIZE];
+    memset(request_buffer, 0, MAX_REQUEST_SIZE);
+    ssize_t bytes_received = recv(client_socket, request_buffer, MAX_REQUEST_SIZE - 1, 0);
 
     if (bytes_received > 0) {
         request_buffer[bytes_received] = '\0';
         log_event("Received HTTP request");
+
+        // Check for WebSocket upgrade request
+        if (config.enable_websocket && is_websocket_upgrade(request_buffer)) {
+            log_event("WebSocket upgrade request detected");
+            
+            char response[512];
+            if (ws_handle_handshake(client_socket, request_buffer, response, sizeof(response)) == 0) {
+                send(client_socket, response, strlen(response), 0);
+                
+                // Create WebSocket connection context
+                ws_connection_t *ws_conn = malloc(sizeof(ws_connection_t));
+                if (ws_conn) {
+                    ws_conn->socket_fd = client_socket;
+                    ws_conn->ssl = NULL;
+                    ws_conn->is_ssl = false;
+                    ws_conn->handshake_complete = true;
+                    
+                    // Handle WebSocket connection in this thread
+                    handle_websocket(ws_conn);
+                } else {
+                    close(client_socket);
+                }
+            } else {
+                log_event("WebSocket handshake failed");
+                close(client_socket);
+            }
+            pthread_exit(NULL);
+        }
 
         char method[8], url[256], protocol[16];
         if (parse_request_line(request_buffer, method, url, protocol) != 0) {
@@ -382,7 +508,7 @@ void *handle_http_client(void *arg) {
             const char *bad_request_response = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid Request";
             send(client_socket, bad_request_response, strlen(bad_request_response), 0);
             close(client_socket);
-            return NULL;
+            pthread_exit(NULL);
         }
 
         if (config.use_https) {  // Check if HTTPS is enabled
@@ -411,7 +537,8 @@ void *handle_http_client(void *arg) {
             log_event("Blocked malicious URL");
             const char *forbidden_response = "HTTP/1.1 403 Forbidden\r\n\r\nAccess Denied";
             send(client_socket, forbidden_response, strlen(forbidden_response), 0);
-            return NULL;
+            close(client_socket);
+            pthread_exit(NULL);
         }
 
         char client_ip[INET_ADDRSTRLEN];
@@ -512,15 +639,6 @@ void *handle_https_client(void *arg) {
     }
 
     if (SSL_accept(ssl) <= 0) {
-        perror("SSL_accept error");
-        ERR_print_errors_fp(stderr);
-        log_event("SSL handshake failed.");
-        SSL_free(ssl); // Free SSL context on failure
-        close(client_socket);
-        pthread_exit(NULL);
-    }
-
-    if (SSL_accept(ssl) <= 0) {
         int ssl_error = SSL_get_error(ssl, -1);
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg),
@@ -534,7 +652,48 @@ void *handle_https_client(void *arg) {
 
     log_event("SSL handshake successful!");
 
+    // Check if HTTP/2 was negotiated via ALPN
+    if (config.enable_http2) {
+        const unsigned char *alpn_data = NULL;
+        unsigned int alpn_len = 0;
+        
+        SSL_get0_alpn_selected(ssl, &alpn_data, &alpn_len);
+        
+        if (alpn_data && alpn_len == 2 && memcmp(alpn_data, "h2", 2) == 0) {
+            log_event("HTTP/2 protocol negotiated via ALPN");
+            
+            // Set socket to non-blocking mode for HTTP/2
+            int flags = fcntl(client_socket, F_GETFL, 0);
+            fcntl(client_socket, F_SETFL, flags | O_NONBLOCK);
+            
+            // Initialize HTTP/2 session
+            http2_session_t h2_session;
+            if (http2_session_init(&h2_session, client_socket, ssl) == 0) {
+                // Handle HTTP/2 connection
+                while (server_running) {
+                    int result = http2_handle_connection(&h2_session);
+                    if (result <= 0) {
+                        break;  // Connection closed or error
+                    }
+                    
+                    // Small delay to avoid busy loop
+                    usleep(1000);  // 1ms
+                }
+                
+                http2_session_cleanup(&h2_session);
+            } else {
+                log_event("Failed to initialize HTTP/2 session");
+            }
+            
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(client_socket);
+            pthread_exit(NULL);
+        }
+    }
+
     char buffer[MAX_REQUEST_SIZE];
+    memset(buffer, 0, MAX_REQUEST_SIZE);
     ssize_t bytes_received = SSL_read(ssl, buffer, MAX_REQUEST_SIZE - 1);
 
     if (bytes_received < 0) {
@@ -549,6 +708,37 @@ void *handle_https_client(void *arg) {
         buffer[bytes_received] = '\0';
         log_event("Received HTTPS request:");
         log_event(buffer);
+    }
+
+    // Check for WebSocket upgrade request on HTTPS
+    if (config.enable_websocket && is_websocket_upgrade(buffer)) {
+        log_event("Secure WebSocket upgrade request detected");
+        
+        char response[512];
+        if (ws_handle_handshake_ssl(ssl, buffer, response, sizeof(response)) == 0) {
+            SSL_write(ssl, response, strlen(response));
+            
+            // Create WebSocket connection context
+            ws_connection_t *ws_conn = malloc(sizeof(ws_connection_t));
+            if (ws_conn) {
+                ws_conn->socket_fd = client_socket;
+                ws_conn->ssl = ssl;
+                ws_conn->is_ssl = true;
+                ws_conn->handshake_complete = true;
+                
+                // Handle WebSocket connection in this thread
+                handle_websocket(ws_conn);
+                pthread_exit(NULL);
+            } else {
+                SSL_shutdown(ssl);
+                SSL_free(ssl);
+                close(client_socket);
+                pthread_exit(NULL);
+            }
+        } else {
+            log_event("Secure WebSocket handshake failed");
+            goto cleanup;
+        }
     }
 
     char method[8], url[256], protocol[16];
@@ -1054,7 +1244,13 @@ int check_rate_limit(const char *ip) {
     }
     
     // Add new entry
-    rate_limits = realloc(rate_limits, (rate_limit_count + 1) * sizeof(RateLimit));
+    RateLimit *new_limits = realloc(rate_limits, (rate_limit_count + 1) * sizeof(RateLimit));
+    if (!new_limits) {
+        pthread_mutex_unlock(&rate_limit_mutex);
+        return 0;  // Memory allocation failed, deny request
+    }
+    rate_limits = new_limits;
+    
     size_t ip_len = strlen(ip);
     if (ip_len >= INET_ADDRSTRLEN) {
         ip_len = INET_ADDRSTRLEN - 1;
