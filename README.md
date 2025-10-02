@@ -3,36 +3,19 @@
 # 🔥 Carbon HTTP Server
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform**Configuration Options:**
-- `port`: HTTP port (default: 8080)
-- `use_https`: Enable HTTPS - accepts: true/false, yes/no, on/off, 1/0
-- `log_file`: Path to log file
-- `max_threads`: Number of worker threads
-- `server_name`: Your domain or IP address
-- `verbose`: Enable detailed logging - accepts: true/false, yes/no, on/off, 1/0
-- `enable_http2`: Enable HTTP/2 support (requires HTTPS) - coming soon
-- `enable_websocket`: Enable WebSocket support (default: true)
-
-**Note:** Boolean values are flexible and accept multiple formats:
-- True: `true`, `yes`, `on`, `1`
-- False: `false`, `no`, `off`, `0`
-
-Values can optionally be quoted with single or double quotes.svg)](https://www.linux.org/)
+[![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)](https://www.linux.org/)
 [![Language](https://img.shields.io/badge/Language-C-orange.svg)](https://en.wikipedia.org/wiki/C_(programming_language))
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
-
-**A high-performance HTTP/HTTPS server written in C for Linux systems**
-
-*Features HTTP/2, WebSocket, advanced security, caching, and asynchronous I/O capabilities*
-
 ![HTTP/2](https://img.shields.io/badge/HTTP%2F2-✓-success)
 ![WebSocket](https://img.shields.io/badge/WebSocket-RFC%206455-success)
 ![SSL/TLS](https://img.shields.io/badge/SSL%2FTLS-OpenSSL-blue)
 ![Epoll](https://img.shields.io/badge/I%2FO-epoll-orange)
 
+*Features HTTP/2, WebSocket, advanced security, caching, and asynchronous I/O capabilities*
+
 > **⚠️ WORK IN PROGRESS**: This project is currently under active development and is not yet a full release. Features may be incomplete, APIs may change, and bugs may be present. Use in production environments at your own risk.
 
-[Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Usage](#-usage) • [Contributing](#-contributing) • [License](#-license)
+[Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Usage](#-usage) • [Contributing](#-contributing) • [License](#-license) •  [Documentation](DOCUMENTATION.md)
 
 </div>
 
@@ -50,6 +33,7 @@ Values can optionally be quoted with single or double quotes.svg)](https://www.l
 - [Roadmap](#-roadmap)
 - [Contributing](#-contributing)
 - [Security](#-security)
+- [Documentation](DOCUMENTATION.md)
 - [License](#-license)
 - [Acknowledgments](#-acknowledgments)
 
@@ -66,7 +50,7 @@ Carbon is a modern, production-ready HTTP/HTTPS server implementation in C, desi
 
 ## ✨ Features
 
-### 🚀 Performance
+### 🚀 High Performance
 - **Asynchronous I/O**: Epoll-based event handling for maximum efficiency
 - **Thread Pool**: Efficient connection handling with configurable worker threads
 - **Smart Caching**: File caching system to reduce disk I/O
@@ -74,7 +58,7 @@ Carbon is a modern, production-ready HTTP/HTTPS server implementation in C, desi
 - **Keep-Alive Support**: Persistent connections to reduce overhead
 - **TCP Optimization**: Fine-tuned NODELAY and buffer configurations
 
-### 🔒 Security
+### 🔒 High Security
 - **SSL/TLS Support**: Full HTTPS support with modern cipher suites
 - **Auto HTTPS Redirect**: Automatic HTTP to HTTPS redirection
 - **Rate Limiting**: Per-IP rate limiting and DDoS protection
@@ -117,7 +101,7 @@ sudo apt-get install -y \
 
 ## 🚀 Installation
 
-### Quick Start
+### Using HTTP configuration
 
 ```bash
 # Clone the repository
@@ -131,20 +115,23 @@ sudo apt-get install -y build-essential libssl-dev libmagic-dev libnghttp2-dev
 # Build the server
 make
 
-# Generate SSL certificates (for testing)
+# Run the server
+sudo ./server
+```
+### Using SSL certificate or HTTPS, WebSocket, HTTP/2
+```bash
+# Generate SSL certificates (optional)
 mkdir -p certs
 openssl req -x509 -nodes -days 365 -newkey rsa:4096 \
   -keyout certs/key.pem -out certs/cert.pem \
   -subj "/C=US/ST=State/L=City/O=Carbon/CN=localhost"
 
-# Configure server (edit server.conf)
-# Set: use_https = true, enable_http2 = true, enable_websocket = true
-
-# Run the server
-sudo ./server
 
 # Test HTTP/2
 curl --http2 -k https://localhost:443/
+
+# to use WebSocket (edit server.conf)
+# Set: use_https = true, enable_http2 = true, enable_websocket = true
 
 # Test WebSocket
 # Visit https://localhost:443/websocket-test.html in your browser
@@ -199,10 +186,10 @@ Create or edit `server.conf` in the project root. Carbon uses a traditional Linu
 # Lines starting with # are comments
 
 # Server listening port
-port = 8080
+port = 443
 
 # Enable HTTPS (requires valid certificates in certs/ directory)
-use_https = false
+use_https = true
 
 # Log file location
 log_file = log/server.log
@@ -214,10 +201,16 @@ max_threads = 4
 running = true
 
 # Server name or IP address (used for logging and response headers)
-server_name = localhost
+server_name = 10.0.0.206
 
 # Enable verbose logging
 verbose = true
+
+# Enable HTTP/2 support (requires HTTPS)
+enable_http2 = true
+
+# Enable WebSocket support
+enable_websocket = false
 ```
 
 **Configuration Options:**
@@ -247,9 +240,6 @@ mkdir -p www/{css,js,images}
 
 # Create logs directory
 mkdir -p log
-
-# Place your web files in www/
-# Example: www/index.html, www/css/style.css, etc.
 ```
 
 ## 🎯 Usage
@@ -421,7 +411,6 @@ HTTP/2 provides significant performance improvements:
 - **Binary Protocol**: More efficient parsing
 - **Stream Prioritization**: Better resource loading
 
-See [HTTP2_TESTING.md](HTTP2_TESTING.md) for detailed testing instructions.
 
 ## 📁 Project Structure
 
@@ -445,10 +434,7 @@ Carbon/
 │   └── key.pem
 ├── www/                  # Web root directory
 │   ├── index.html
-│   ├── websocket-test.html  # WebSocket test client
-│   ├── css/
-│   ├── js/
-│   └── images/
+│   └── websocket-test.html  # WebSocket test client
 └── log/                  # Log files
     └── server.log
 ```
@@ -460,7 +446,7 @@ Carbon/
 | HTTP/2 Support | High | ✅ Implemented |
 | WebSocket Support | High | ✅ Implemented |
 | Secure WebSocket (wss://) | High | ✅ Implemented |
-| API Rate Limiting | High | ✅ Implemented |
+| API Rate Limiting | High | ⚠️ Broken (WIP) |
 | Security Headers | High | ✅ Implemented |
 | Memory Leak Prevention | High | ✅ Implemented |
 | User Authentication | High | 📋 Planned |
@@ -499,19 +485,15 @@ Carbon implements multiple security layers, but for production deployments:
 
 **Reporting Security Issues**: Please report security vulnerabilities to the maintainers privately before public disclosure.
 
+## 📚 Documentation
+
+Detailed documentation on how to use carbon server - see the [Documentation](DOCUMENTATION.md) for more details.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## � Documentation
-
-- **[LETSENCRYPT_SETUP.md](LETSENCRYPT_SETUP.md)** - Complete guide for setting up Let's Encrypt SSL certificates
-- **[SSL_FOR_IP_ADDRESS.md](SSL_FOR_IP_ADDRESS.md)** - SSL certificate options when using IP addresses
-- **[SELF_SIGNED_CERTIFICATES.md](SELF_SIGNED_CERTIFICATES.md)** - Guide for generating and managing self-signed certificates
-- **[HTTP2_TESTING.md](HTTP2_TESTING.md)** - HTTP/2 testing and verification guide
-- **[check-http2.sh](check-http2.sh)** - Automated HTTP/2 diagnostic script
-
-## �🙏 Acknowledgments
+## 🙏 Acknowledgments
 
 Carbon is built with these excellent open-source libraries:
 
