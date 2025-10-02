@@ -386,7 +386,7 @@ void *handle_http_client(void *arg) {
             char redirect_response[512];
             snprintf(redirect_response, sizeof(redirect_response),
                      "HTTP/1.1 301 Moved Permanently\r\n"
-                     "Location: https://%s%s\r\n\r\n", config.server_name, url);
+                     "Location: https://%.255s%.255s\r\n\r\n", config.server_name, url);
             send(client_socket, redirect_response, strlen(redirect_response), 0);
             log_event("Redirecting to HTTPS"); // Log the redirection
             close(client_socket);

@@ -52,3 +52,4 @@ Mkfile.old
 dkms.conf
 log/*
 server
+certs/*.pem
