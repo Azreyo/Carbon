@@ -1,9 +1,0 @@
-{
-    "port": 8080,
-    "use_https": false,
-    "log_file": "log/server.log",
-    "max_threads": 4,
-    "running": true,
-	"server_name": "Your_domain/IP",
-	"verbose": true
-  }
