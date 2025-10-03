@@ -14,4 +14,5 @@ void init_config(ServerConfig *config) {
     config->enable_http2 = false;
     config->enable_websocket = false;
     strcpy(config->www_path, "www");
+    config->max_connections = 1024;
 }
