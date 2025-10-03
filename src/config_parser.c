@@ -15,6 +15,7 @@ typedef enum {
     CONFIG_VERBOSE,
     CONFIG_ENABLE_HTTP2,
     CONFIG_ENABLE_WEBSOCKET,
+    CONFIG_WWW_PATH,
     CONFIG_UNKNOWN
 
 } ConfigKey;
@@ -62,6 +63,7 @@ static ConfigKey get_config_key(const char *key) {
         {"verbose", CONFIG_VERBOSE},
         {"enable_http2", CONFIG_ENABLE_HTTP2},
         {"enable_websocket",CONFIG_ENABLE_WEBSOCKET},
+        {"www_path", CONFIG_WWW_PATH},
         {NULL, CONFIG_UNKNOWN}
         
     };
@@ -171,6 +173,12 @@ int load_config(const char *filename, ServerConfig *config) {
             case CONFIG_ENABLE_WEBSOCKET:
                 config->enable_websocket = parse_bool(value);
                 printf("load_config: enable_websocket = %d\n", config->enable_websocket);
+            break;
+
+            case CONFIG_WWW_PATH:
+                strncpy(config->www_path, value, sizeof(config->www_path) - 1);
+                config->www_path[sizeof(config->www_path) - 1] = '\0';
+                printf("load_config: www_path = %s\n", config->www_path);
             break;
 
             case CONFIG_UNKNOWN:

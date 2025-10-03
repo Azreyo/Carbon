@@ -14,6 +14,7 @@ typedef struct {
     int verbose;
     bool enable_http2;
     bool enable_websocket;
+    char www_path[256];
 } ServerConfig;
 
 int load_config(const char *filename, ServerConfig *config);
