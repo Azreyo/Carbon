@@ -13,4 +13,5 @@ void init_config(ServerConfig *config) {
     strcpy(config->server_name, "127.0.0.1");
     config->enable_http2 = false;
     config->enable_websocket = false;
+    strcpy(config->www_path, "www");
 }

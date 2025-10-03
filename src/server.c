@@ -557,7 +557,7 @@ void *handle_http_client(void *arg) {
         }
 
         char filepath[512];
-        snprintf(filepath, sizeof(filepath), "www%s", 
+        snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
                  (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
         free(sanitized_url);
 
@@ -779,7 +779,7 @@ void *handle_https_client(void *arg) {
     }
 
     char filepath[512];
-    snprintf(filepath, sizeof(filepath), "www%s", 
+    snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
              (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
     free(sanitized_url);
     log_event("Filepath:");
