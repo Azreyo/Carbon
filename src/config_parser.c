@@ -16,6 +16,7 @@ typedef enum {
     CONFIG_ENABLE_HTTP2,
     CONFIG_ENABLE_WEBSOCKET,
     CONFIG_WWW_PATH,
+    CONFIG_MAX_CONNECTIONS,
     CONFIG_UNKNOWN
 
 } ConfigKey;
@@ -64,6 +65,7 @@ static ConfigKey get_config_key(const char *key) {
         {"enable_http2", CONFIG_ENABLE_HTTP2},
         {"enable_websocket",CONFIG_ENABLE_WEBSOCKET},
         {"www_path", CONFIG_WWW_PATH},
+        {"max_connections", CONFIG_MAX_CONNECTIONS},
         {NULL, CONFIG_UNKNOWN}
         
     };
@@ -147,6 +149,10 @@ int load_config(const char *filename, ServerConfig *config) {
 
             case CONFIG_RUNNING:
                 config->running = parse_bool(value);
+                if (config->running == 0 || false) {
+                    fprintf(stderr, "ERROR: current run state is false cannot run the server!\n");
+                    exit(EXIT_FAILURE);
+                }
                 printf("load_config: running = %d\n", config->running);
             break;
 
@@ -179,6 +185,12 @@ int load_config(const char *filename, ServerConfig *config) {
                 strncpy(config->www_path, value, sizeof(config->www_path) - 1);
                 config->www_path[sizeof(config->www_path) - 1] = '\0';
                 printf("load_config: www_path = %s\n", config->www_path);
+            break;
+
+            case CONFIG_MAX_CONNECTIONS:
+                config->max_connections = atoi(value);
+                printf("load_config: max_connections: = %d\n", config->max_connections);
+
             break;
 
             case CONFIG_UNKNOWN:

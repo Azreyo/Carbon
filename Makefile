@@ -14,12 +14,12 @@ LDFLAGS = -pthread
 LIBS = -lssl -lcrypto -lmagic -lnghttp2
 
 # Source files and object files
-SRCS = src/server.c src/config_parser.c src/server_config.c src/websocket.c src/http2.c
+SRCS = src/server.c src/config_parser.c src/server_config.c src/websocket.c src/http2.c src/performance.c
 OBJS = $(SRCS:.c=.o)
 TARGET = server
 
 # Header files
-HEADERS = src/server_config.h src/websocket.h
+HEADERS = src/server_config.h src/websocket.h src/http2.h src/performance.h
 
 # Include directories
 INCLUDES =

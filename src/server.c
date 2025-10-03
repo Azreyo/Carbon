@@ -19,14 +19,15 @@
 #include <ctype.h>
 #include <time.h>
 #include <sys/sendfile.h>
+#include <sys/time.h>
 
 #include "server_config.h"
 #include "websocket.h"
 #include "http2.h"
+#include "performance.h"
 
-#define MAX_REQUEST_SIZE 8192
+#define MAX_REQUEST_SIZE 16384
 #define MAX_LOG_SIZE 2048
-#define MAX_CLIENTS 1024
 #define MAX_EVENTS 1024
 
 #define BOLD    "\x1b[1m"
@@ -67,6 +68,7 @@
 
 #define MAX_CACHE_SIZE 100
 #define MAX_CACHE_FILE_SIZE (1024 * 1024)  // 1MB
+#define MAX_MMAP_FILE_SIZE (10 * 1024 * 1024)  // 10MB
 
 typedef struct {
     pthread_t thread;
@@ -99,7 +101,7 @@ pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 ServerConfig config;
 char server_log[MAX_LOG_SIZE];
 pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_t client_threads[MAX_CLIENTS];
+pthread_t *client_threads = NULL;
 int num_client_threads = 0;
 pthread_mutex_t thread_count_mutex = PTHREAD_MUTEX_INITIALIZER;
 SSL_CTX *ssl_ctx = NULL;
@@ -190,7 +192,9 @@ void set_socket_options(int socket_fd) {
     int nodelay = 1;
 
     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    #ifdef SO_REUSEPORT
     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
+    #endif
     setsockopt(socket_fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
     setsockopt(socket_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
     setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
@@ -272,7 +276,7 @@ void *start_http_server(void *arg) {
                 }
 
                 pthread_mutex_lock(&thread_count_mutex);
-                if (num_client_threads < MAX_CLIENTS) {
+                if (num_client_threads < config.max_connections) {
                     pthread_t client_thread;
                     int *client_socket_ptr = malloc(sizeof(int));
                     *client_socket_ptr = client_socket;
@@ -344,7 +348,7 @@ void *start_https_server(void *arg) {
         }
 
         pthread_mutex_lock(&thread_count_mutex);
-        if (num_client_threads < MAX_CLIENTS) {
+        if (num_client_threads < config.max_connections) {
             pthread_t client_thread;
             int *client_socket_ptr = malloc(sizeof(int));
             *client_socket_ptr = client_socket;
@@ -563,6 +567,39 @@ void *handle_http_client(void *arg) {
 
         // Get MIME type
         char *mime_type = get_mime_type(filepath);
+        
+        // Try cache first
+        mmap_cache_entry_t *cached = get_cached_file(filepath);
+        
+        if (cached) {
+            // Serve from cache
+            char response_header[1024];
+            int header_len = snprintf(response_header, sizeof(response_header),
+                     "HTTP/1.1 200 OK\r\n"
+                     "Content-Length: %zu\r\n"
+                     "Content-Type: %s\r\n"
+                     "%s"
+                     "\r\n",
+                     cached->size,
+                     cached->mime_type,
+                     SECURITY_HEADERS);
+
+            send(client_socket, response_header, header_len, 0);
+            
+            // Send cached data
+            size_t total_sent = 0;
+            while (total_sent < cached->size) {
+                ssize_t sent = send(client_socket, (char*)cached->mmap_data + total_sent, 
+                                   cached->size - total_sent, 0);
+                if (sent <= 0) break;
+                total_sent += sent;
+            }
+            
+            release_cached_file(cached);
+            free(mime_type);
+            log_event("Served file from cache");
+            goto done_serving;
+        }
 
         int fd = open(filepath, O_RDONLY);
         if (fd == -1) {
@@ -581,9 +618,14 @@ void *handle_http_client(void *arg) {
                 free(mime_type);
                 goto cleanup;
             }
+            
+            // Cache if eligible
+            if (st.st_size > 0 && st.st_size < MAX_MMAP_FILE_SIZE) {
+                cache_file_mmap(filepath, st.st_size, mime_type);
+            }
 
-            char response_header[512];
-            snprintf(response_header, sizeof(response_header),
+            char response_header[1024];
+            int header_len = snprintf(response_header, sizeof(response_header),
                      "HTTP/1.1 200 OK\r\n"
                      "Content-Length: %ld\r\n"
                      "Content-Type: %s\r\n"
@@ -595,8 +637,9 @@ void *handle_http_client(void *arg) {
 
             free(mime_type);
 
-            send(client_socket, response_header, strlen(response_header), 0);
+            send(client_socket, response_header, header_len, 0);
 
+            // Use sendfile for zero-copy transfer
             off_t offset = 0;
             ssize_t sent = sendfile(client_socket, fd, &offset, st.st_size);
             if (sent != st.st_size) {
@@ -606,6 +649,8 @@ void *handle_http_client(void *arg) {
             close(fd);
             log_event("Served requested file successfully.");
         }
+        
+done_serving:
     } else if (bytes_received < 0) {
         HANDLE_ERROR("Error receiving request");
     }
@@ -787,55 +832,94 @@ void *handle_https_client(void *arg) {
 
     // Get MIME type
     char *mime_type = get_mime_type(filepath);
+    
+    // Try to get file from cache first
+    mmap_cache_entry_t *cached = get_cached_file(filepath);
+    
+    if (cached) {
+        // Serve from cache (fast path)
+        char response_header[1024];
+        int header_len = snprintf(response_header, sizeof(response_header),
+                 "HTTP/1.1 200 OK\r\n"
+                 "Content-Length: %zu\r\n"
+                 "Content-Type: %s\r\n"
+                 "%s"
+                 "\r\n",
+                 cached->size,
+                 cached->mime_type,
+                 SECURITY_HEADERS);
 
+        SSL_write(ssl, response_header, header_len);
+        
+        // Send cached data directly from memory
+        size_t total_sent = 0;
+        while (total_sent < cached->size) {
+            int to_send = (cached->size - total_sent > 16384) ? 16384 : (cached->size - total_sent);
+            int sent = SSL_write(ssl, (char*)cached->mmap_data + total_sent, to_send);
+            if (sent <= 0) break;
+            total_sent += sent;
+        }
+        
+        release_cached_file(cached);
+        free(mime_type);
+        log_event("Served file from cache (mmap)");
+        goto cleanup;
+    }
+
+    // Not in cache - load from disk
     int fd = open(filepath, O_RDONLY);
     if (fd == -1) {
-        perror("open error");
         log_event("File open failed");
         const char *not_found_response = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
         SSL_write(ssl, not_found_response, strlen(not_found_response));
         free(mime_type);
         goto cleanup;
-    } else {
-        struct stat st;
-        if (fstat(fd, &st) == -1) {
-            perror("fstat error");
-            log_event("Error getting file size.");
-            const char *internal_server_error = 
-                "HTTP/1.1 500 Internal Server Error\r\n\r\nInternal Server Error";
-            SSL_write(ssl, internal_server_error, strlen(internal_server_error));
-            close(fd);
-            free(mime_type);
-            goto cleanup;
-        }
-
-        char response_header[512];
-        snprintf(response_header, sizeof(response_header),
-                 "HTTP/1.1 200 OK\r\n"
-                 "Content-Length: %ld\r\n"
-                 "Content-Type: %s\r\n"
-                 "%s"
-                 "\r\n",
-                 (long)st.st_size,
-                 mime_type,
-                 SECURITY_HEADERS);
-
-        free(mime_type);
-
-        SSL_write(ssl, response_header, strlen(response_header));
-
-        char file_buffer[1024];
-        ssize_t bytes_read;
-        while ((bytes_read = read(fd, file_buffer, sizeof(file_buffer))) > 0) {
-            if (SSL_write(ssl, file_buffer, bytes_read) <= 0) {
-                perror("SSL_write error");
-                log_event("Error sending file content.");
-                break;
-            }
-        }
-        close(fd);
-        log_event("Served requested file successfully.");
     }
+    
+    struct stat st;
+    if (fstat(fd, &st) == -1) {
+        log_event("Error getting file size.");
+        const char *internal_server_error = 
+            "HTTP/1.1 500 Internal Server Error\r\n\r\nInternal Server Error";
+        SSL_write(ssl, internal_server_error, strlen(internal_server_error));
+        close(fd);
+        free(mime_type);
+        goto cleanup;
+    }
+
+    // Cache file if it's small enough
+    if (st.st_size > 0 && st.st_size < MAX_MMAP_FILE_SIZE) {
+        cache_file_mmap(filepath, st.st_size, mime_type);
+    }
+
+    char response_header[1024];
+    int header_len = snprintf(response_header, sizeof(response_header),
+             "HTTP/1.1 200 OK\r\n"
+             "Content-Length: %ld\r\n"
+             "Content-Type: %s\r\n"
+             "%s"
+             "\r\n",
+             (long)st.st_size,
+             mime_type,
+             SECURITY_HEADERS);
+
+    free(mime_type);
+
+    SSL_write(ssl, response_header, header_len);
+
+    // Use larger buffer for better performance
+    char *file_buffer = get_buffer_from_pool(16384);
+    ssize_t bytes_read;
+    while ((bytes_read = read(fd, file_buffer, 16384)) > 0) {
+        if (SSL_write(ssl, file_buffer, bytes_read) <= 0) {
+            log_event("Error sending file content.");
+            break;
+        }
+    }
+    return_buffer_to_pool(file_buffer);
+    close(fd);
+    log_event("Served requested file successfully.");
+
 
 cleanup:
     if (ssl) {
@@ -874,12 +958,13 @@ void shutdown_server() {
     }
 
     // Wait for all threads with timeout
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec += 5;  // 5 second timeout
+    time_t start_time = time(NULL);
 
     pthread_mutex_lock(&thread_count_mutex);
-    while (num_client_threads > 0 && clock_gettime(CLOCK_REALTIME, &ts) < 5) {
+    while (num_client_threads > 0 && (time(NULL) - start_time) < 5) {
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 100000000;  // 100ms
         pthread_cond_timedwait(&thread_pool_cond, &thread_count_mutex, &ts);
     }
     
@@ -896,6 +981,8 @@ void shutdown_server() {
     // Cleanup resources
     cleanup_openssl();
     cleanup_thread_pool();
+    cleanup_mmap_cache();
+    cleanup_buffer_pool();
     
     if (rate_limits) {
         free(rate_limits);
@@ -912,27 +999,41 @@ void shutdown_server() {
         file_cache = NULL;
     }
     
+    if (client_threads) {
+        free(client_threads);
+        client_threads = NULL;
+    }
+    
     log_event("Server shutdown completed.");
 }
 
 
 int parse_request_line(char *request_buffer, char *method, char *url, char *protocol) {
+    if (!request_buffer || !method || !url || !protocol) return -1;
+    
+    method[0] = '\0';
+    url[0] = '\0';
+    protocol[0] = '\0';
+    
     char *saveptr1, *saveptr2;
     char *line = strtok_r(request_buffer, "\r\n", &saveptr1);
 
-    if (line == NULL) return -1;
+    if (line == NULL || strlen(line) == 0) return -1;
 
     char *token = strtok_r(line, " ", &saveptr2);
-    if (token == NULL) return -1;
-    strncpy(method, token, 7); method[7] = '\0';
+    if (token == NULL || strlen(token) > 7) return -1;
+    strncpy(method, token, 7); 
+    method[7] = '\0';
 
     token = strtok_r(NULL, " ", &saveptr2);
-    if (token == NULL) return -1;
-    strncpy(url, token, 255); url[255] = '\0';
+    if (token == NULL || strlen(token) > 255) return -1;
+    strncpy(url, token, 255); 
+    url[255] = '\0';
 
     token = strtok_r(NULL, " ", &saveptr2);
-    if (token == NULL) return -1;
-    strncpy(protocol, token, 15); protocol[15] = '\0';
+    if (token == NULL || strlen(token) > 15) return -1;
+    strncpy(protocol, token, 15); 
+    protocol[15] = '\0';
 
     return 0;
 }
@@ -966,12 +1067,35 @@ void signal_handler(int sig) {
     }
 }
 
+void initialize_thread_pool() {
+    thread_pool = calloc(MAX_THREAD_POOL_SIZE, sizeof(ThreadInfo));
+    if (!thread_pool) {
+        perror("Failed to allocate thread pool");
+        exit(EXIT_FAILURE);
+    }
+}
+
 int main() {
     if (load_config("server.conf", &config) != 0) {
         printf("Using default configuration.\n");
     }
 
     config.running = 1;
+    
+    // Allocate client threads array
+    client_threads = calloc(config.max_connections, sizeof(pthread_t));
+    if (!client_threads) {
+        perror("Failed to allocate client threads array");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Initialize thread pool
+    initialize_thread_pool();
+    
+    // Initialize performance optimizations
+    init_mmap_cache();
+    init_buffer_pool();
+    log_event("Performance optimizations initialized");
 
     if (config.use_https) {
         initialize_openssl();
@@ -1139,69 +1263,92 @@ char* sanitize_url(const char *url) {
     if (!url) return NULL;
     
     size_t url_len = strlen(url);
-    if (url_len == 0 || url_len > 255) return NULL;
+    if (url_len == 0 || url_len > 2048) return NULL;
     
-    char *sanitized = malloc(url_len + 1);
+    char *sanitized = calloc(1, url_len + 2);
     if (!sanitized) {
         log_event("Memory allocation failed in sanitize_url");
         return NULL;
     }
     
-    int i, j = 0;
+    int j = 0;
     int slash_count = 0;
-    int dot_count = 0;
+    int consecutive_dots = 0;
+    bool last_was_slash = false;
     
     // Must start with '/'
     if (url[0] != '/') {
         sanitized[j++] = '/';
     }
     
-    for (i = 0; url[i]; i++) {
-        if (j >= 255) { // Prevent buffer overflow
-            free(sanitized);
-            return NULL;
-        }
+    for (size_t i = 0; i < url_len && j < (int)url_len; i++) {
+        char c = url[i];
         
-        // Reset dot count on directory change
-        if (url[i] == '/') {
-            dot_count = 0;
+        // Check for null bytes (security)
+        if (c == '\0') break;
+        
+        // Handle slashes
+        if (c == '/') {
+            if (last_was_slash) continue;
+            last_was_slash = true;
+            consecutive_dots = 0;
             slash_count++;
-            if (slash_count > 10) { // Limit directory depth
+            
+            if (slash_count > 20) {
                 free(sanitized);
                 return NULL;
             }
+            
+            sanitized[j++] = c;
+            continue;
         }
         
-        // Count consecutive dots
-        if (url[i] == '.') {
-            dot_count++;
-            if (dot_count > 1) { // Prevent directory traversal
+        last_was_slash = false;
+        
+        // Handle dots (prevent traversal)
+        if (c == '.') {
+            consecutive_dots++;
+            if (consecutive_dots > 2) {  // Too many dots
+                free(sanitized);
+                return NULL;
+            }
+            // Check for path traversal patterns
+            if (consecutive_dots == 2 && (i == 0 || url[i-1] == '/')) {
                 free(sanitized);
                 return NULL;
             }
         } else {
-            dot_count = 0;
+            consecutive_dots = 0;
         }
         
-        // Only allow safe characters
-        if (isalnum((unsigned char)url[i]) || 
-            url[i] == '/' || 
-            url[i] == '.' || 
-            url[i] == '-' || 
-            url[i] == '_') {
-            sanitized[j++] = url[i];
+        // Only allow safe characters (alphanumeric, dash, underscore, dot)
+        if (isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.') {
+            sanitized[j++] = c;
+        } else if (c == '%') {
+            // URL encoding - only allow safe encoded characters
+            if (i + 2 < url_len && isxdigit(url[i+1]) && isxdigit(url[i+2])) {
+                sanitized[j++] = c;
+            } else {
+                free(sanitized);
+                return NULL;
+            }
         }
+        // Skip other characters silently
     }
     
-    // Ensure proper termination
     sanitized[j] = '\0';
     
-    // Additional security checks
-    if (strstr(sanitized, "//") || // No double slashes
-        strstr(sanitized, "./") || // No current directory
-        strstr(sanitized, "..") || // No parent directory
-        strstr(sanitized, "/.") || // No hidden files
-        strlen(sanitized) < 1) {   // Must have content
+    // Final security checks
+    if (j == 0 || j > 2048) {
+        free(sanitized);
+        return NULL;
+    }
+    
+    // Check for dangerous patterns
+    if (strstr(sanitized, "/../") || 
+        strstr(sanitized, "/./") ||
+        strstr(sanitized, "//") ||
+        (strlen(sanitized) >= 3 && strcmp(sanitized + strlen(sanitized) - 3, "/..") == 0)) {
         free(sanitized);
         return NULL;
     }
@@ -1265,15 +1412,11 @@ int check_rate_limit(const char *ip) {
     return 1;  // Request allowed
 }
 
-void initialize_thread_pool() {
-    thread_pool = calloc(MAX_THREAD_POOL_SIZE, sizeof(ThreadInfo));
-    if (!thread_pool) {
-        perror("Failed to allocate thread pool");
-        exit(EXIT_FAILURE);
-    }
-}
-
 void cleanup_thread_pool() {
+    if (!thread_pool) {
+        return;
+    }
+    
     for (int i = 0; i < thread_pool_size; i++) {
         if (thread_pool[i].busy) {
             pthread_cancel(thread_pool[i].thread);
@@ -1281,6 +1424,8 @@ void cleanup_thread_pool() {
         }
     }
     free(thread_pool);
+    thread_pool = NULL;
+    thread_pool_size = 0;
 }
 
 void cache_file(const char *path, const char *data, size_t size, const char *mime_type) {
