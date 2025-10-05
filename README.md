@@ -118,24 +118,6 @@ make
 # Run the server
 sudo ./server
 ```
-### Using SSL certificate or HTTPS, WebSocket, HTTP/2
-```bash
-# Generate SSL certificates (optional)
-mkdir -p certs
-openssl req -x509 -nodes -days 365 -newkey rsa:4096 \
-  -keyout certs/key.pem -out certs/cert.pem \
-  -subj "/C=US/ST=State/L=City/O=Carbon/CN=localhost"
-
-
-# Test HTTP/2
-curl --http2 -k https://localhost:443/
-
-# to use WebSocket (edit server.conf)
-# Set: use_https = true, enable_http2 = true, enable_websocket = true
-
-# Test WebSocket
-# Visit https://localhost:443/websocket-test.html in your browser
-```
 
 ### Build Options
 
@@ -167,12 +149,12 @@ gcc src/server.c src/config_parser.c src/server_config.c src/websocket.c src/htt
 
 ```bash
 # Create certificates directory
-mkdir -p certs
+mkdir -p ssl ssl/certs ssl/key
 
 # Generate self-signed certificate (for testing only)
 openssl req -x509 -newkey rsa:2048 \
-    -keyout certs/key.pem \
-    -out certs/cert.pem \
+    -keyout ssl/key/key.key \
+    -out ssl/cert/cert.pem \
     -days 365 -nodes \
     -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
 ```
@@ -223,6 +205,8 @@ enable_websocket = false
 - `max_threads`: Number of worker threads
 - `server_name`: Your domain or IP address
 - `verbose`: Enable detailed logging - accepts: true/false, yes/no, on/off, 1/0
+- `ssl_cert_path`: Path to ssl certificate
+- `ssl_key_path`: Path to ssl key
 
 **Note:** Boolean values are flexible and accept multiple formats:
 - True: `true`, `yes`, `on`, `1`
