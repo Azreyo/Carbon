@@ -38,6 +38,11 @@ void init_task_queue(task_queue_t *queue)
 
 void enqueue_task(task_queue_t *queue, int socket_fd, SSL *ssl, bool is_https)
 {
+    if (queue->count >= INT_MAX - 1)
+    {
+        return;
+    }
+    
     connection_task_t *task = malloc(sizeof(connection_task_t));
     if (!task)
         return;

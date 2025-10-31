@@ -38,7 +38,12 @@ static char *base64_encode(const unsigned char *input, int length)
 char *ws_generate_accept_key(const char *client_key)
 {
     char combined[256];
-    snprintf(combined, sizeof(combined), "%s%s", client_key, WS_GUID);
+    int written = snprintf(combined, sizeof(combined), "%s%s", client_key, WS_GUID);
+    
+    if (written < 0 || written >= (int)sizeof(combined))
+    {
+        return NULL;
+    }
 
     unsigned char hash[SHA_DIGEST_LENGTH];
     SHA1((unsigned char *)combined, strlen(combined), hash);
@@ -68,7 +73,7 @@ int ws_handle_handshake(int client_socket, const char *request, char *response, 
 
     char client_key[256];
     size_t key_len = key_end - key_start;
-    if (key_len >= sizeof(client_key))
+    if (key_len >= sizeof(client_key) || key_len == 0 || key_len > 1024)
     {
         return -1;
     }
@@ -83,7 +88,7 @@ int ws_handle_handshake(int client_socket, const char *request, char *response, 
     }
 
     // Create handshake response
-    snprintf(response, response_size,
+    int written = snprintf(response, response_size,
              "HTTP/1.1 101 Switching Protocols\r\n"
              "Upgrade: websocket\r\n"
              "Connection: Upgrade\r\n"
@@ -92,6 +97,12 @@ int ws_handle_handshake(int client_socket, const char *request, char *response, 
              accept_key);
 
     free(accept_key);
+    
+    if (written < 0 || written >= (int)response_size)
+    {
+        return -1;
+    }
+    
     return 0;
 }
 

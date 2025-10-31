@@ -93,6 +93,12 @@ static ConfigKey get_config_key(const char *key)
 
 int load_config(const char *filename, ServerConfig *config)
 {
+    if (!filename || strlen(filename) > 4096)
+    {
+        fprintf(stderr, "Invalid config filename\n");
+        return 1;
+    }
+    
     FILE *fp = fopen(filename, "r");
     if (!fp)
     {

@@ -137,13 +137,13 @@ int check_rate_limit(const char *ip);
 
 void initialize_openssl()
 {
-    if (!SSL_library_init())
-    {
-        perror(BOLD RED "Error initializing OpenSSL library" RESET);
-        exit(EXIT_FAILURE);
-    }
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    SSL_library_init();
     SSL_load_error_strings();
     OpenSSL_add_all_algorithms();
+#else
+    OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS, NULL);
+#endif
 }
 
 void cleanup_openssl()
@@ -153,7 +153,9 @@ void cleanup_openssl()
         SSL_CTX_free(ssl_ctx);
         ssl_ctx = NULL;
     }
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     EVP_cleanup();
+#endif
 }
 
 SSL_CTX *create_ssl_context()
@@ -180,11 +182,20 @@ void configure_ssl_context(SSL_CTX *ctx)
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
-    if (SSL_CTX_set_cipher_list(ctx, "HIGH: !aNULL: !MD5") != 1)
+
+    const char *cipher_list = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
+                              "TLS_AES_128_GCM_SHA256:"  // TLS 1.3
+                              "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:"
+                              "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:"
+                              "!aNULL:!eNULL:!EXPORT:!DES:!3DES:!RC4:!MD5:!PSK:!CBC";
+    
+    if (SSL_CTX_set_cipher_list(ctx, cipher_list) != 1)
     {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
+    
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 
     // Enable HTTP/2 ALPN if configured
     if (config.enable_http2)
@@ -934,9 +945,17 @@ void *handle_https_client(void *arg)
     }
 
     char filepath[512];
-    snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
+    int written = snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
              (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
     free(sanitized_url);
+    
+    if (written < 0 || written >= (int)sizeof(filepath))
+    {
+        log_event("Path too long, potential buffer overflow attempt (HTTPS)");
+        const char *error_response = "HTTP/1.1 414 URI Too Long\r\n\r\n";
+        SSL_write(ssl, error_response, strlen(error_response));
+        goto cleanup;
+    }
     log_event("Filepath:");
     log_event(filepath);
 
