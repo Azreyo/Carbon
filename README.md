@@ -82,6 +82,7 @@ Carbon is a modern, production-ready HTTP/HTTPS server implementation in C, desi
 - **Debug Mode**: Built-in debugging support for development
 - **Echo Server**: Built-in WebSocket echo server for testing
 
+
 ## 📦 Prerequisites
 
 Before building Carbon, ensure you have the following dependencies installed:
