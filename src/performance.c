@@ -18,7 +18,7 @@ static pthread_mutex_t mmap_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static buffer_pool_t *buffer_pool = NULL;
 static pthread_mutex_t buffer_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
- 
+  
 // Pre-allocated response headers
 const char *response_200_header = "HTTP/1.1 200 OK\r\n";
 const char *response_404_header = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
