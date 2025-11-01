@@ -10,7 +10,7 @@
 #define MAX_MMAP_FILE_SIZE (10 * 1024 * 1024) // 10MB
 #define BUFFER_POOL_SIZE 32
 #define DEFAULT_BUFFER_SIZE 16384
-
+ 
 // Global cache structures
 static mmap_cache_entry_t *mmap_cache = NULL;
 static int mmap_cache_size = 0;
