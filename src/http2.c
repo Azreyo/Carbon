@@ -233,6 +233,19 @@ static int on_frame_recv_callback(nghttp2_session *session,
                     break;
                 }
 
+                if (st.st_size < 0 || st.st_size > 0x7FFFFFFFFFFFFFFF)
+                {
+                    close(fd);
+                    log_event("HTTP/2: File size out of bounds");
+                    
+                    // Send 500 error
+                    nghttp2_nv hdrs[] = {
+                        {(uint8_t *)":status", (uint8_t *)"500", 7, 3, NGHTTP2_NV_FLAG_NONE},
+                        {(uint8_t *)"content-type", (uint8_t *)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}};
+                    nghttp2_submit_response(session, frame->hd.stream_id, hdrs, 2, NULL);
+                    break;
+                }
+
                 // Get MIME type
                 char *mime_type = get_mime_type(filepath);
                 if (!mime_type)

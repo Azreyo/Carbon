@@ -116,6 +116,9 @@ int ws_handle_handshake_ssl(SSL *ssl, const char *request, char *response, size_
 // Parse WebSocket frame
 int ws_parse_frame(const uint8_t *data, size_t len, ws_frame_header_t *header, uint8_t **payload)
 {
+    // Maximum allowed WebSocket payload size (10MB)
+    #define MAX_WEBSOCKET_PAYLOAD (10 * 1024 * 1024)
+    
     if (len < 2)
     {
         return -1;
@@ -149,6 +152,11 @@ int ws_parse_frame(const uint8_t *data, size_t len, ws_frame_header_t *header, u
     else
     {
         header->payload_length = payload_len;
+    }
+
+    if (header->payload_length > MAX_WEBSOCKET_PAYLOAD)
+    {
+        return -1;
     }
 
     if (header->mask)

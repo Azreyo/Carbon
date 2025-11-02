@@ -122,6 +122,12 @@ mmap_cache_entry_t *get_cached_file(const char *path)
     {
         if (mmap_cache[i].path && strcmp(mmap_cache[i].path, path) == 0)
         {
+            if (mmap_cache[i].mmap_data == NULL || mmap_cache[i].size == 0)
+            {
+                pthread_mutex_unlock(&mmap_cache_mutex);
+                return NULL;
+            }
+            
             mmap_cache[i].last_access = time(NULL);
             mmap_cache[i].ref_count++;
             pthread_mutex_unlock(&mmap_cache_mutex);
