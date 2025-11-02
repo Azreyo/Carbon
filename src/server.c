@@ -452,6 +452,11 @@ static int is_websocket_upgrade(const char *request)
 static void *handle_websocket(void *arg)
 {
     ws_connection_t *conn = (ws_connection_t *)arg;
+    
+    if (!conn)
+    {
+        pthread_exit(NULL);
+    }
 
     log_event("WebSocket connection established");
 
@@ -471,7 +476,9 @@ static void *handle_websocket(void *arg)
 
         if (bytes_received <= 0)
         {
-            break;
+            ws_close_connection(conn, 1000);
+            free(conn);
+            pthread_exit(NULL);
         }
 
         ws_frame_header_t header;
@@ -482,7 +489,9 @@ static void *handle_websocket(void *arg)
         {
             log_event("Failed to parse WebSocket frame");
             free(payload);
-            break;
+            ws_close_connection(conn, 1002);
+            free(conn);
+            pthread_exit(NULL);
         }
 
         switch (header.opcode)
@@ -645,9 +654,18 @@ void *handle_http_client(void *arg)
         }
 
         char filepath[512];
-        snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
+        int written = snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
                  (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
         free(sanitized_url);
+        
+        if (written < 0 || written >= (int)sizeof(filepath))
+        {
+            log_event("Path too long, potential buffer overflow attempt");
+            const char *error_response = "HTTP/1.1 414 URI Too Long\r\n\r\n";
+            send(client_socket, error_response, strlen(error_response), 0);
+            close(client_socket);
+            pthread_exit(NULL);
+        }
 
         // Get MIME type
         char *mime_type = get_mime_type(filepath);
@@ -1530,10 +1548,22 @@ char *sanitize_url(const char *url)
         }
         else if (c == '%')
         {
-            // URL encoding - only allow safe encoded characters
+            // URL encoding - decode and validate the character
             if (i + 2 < url_len && isxdigit(url[i + 1]) && isxdigit(url[i + 2]))
             {
-                sanitized[j++] = c;
+                char hex[3] = {url[i + 1], url[i + 2], 0};
+                int decoded = (int)strtol(hex, NULL, 16);
+                
+                // Block encoded directory traversal characters and control characters
+                if (decoded == '.' || decoded == '/' || decoded == '\\' || 
+                    decoded == 0x00 || decoded < 0x20 || decoded > 0x7E)
+                {
+                    free(sanitized);
+                    return NULL;
+                }
+                
+                sanitized[j++] = (char)decoded;
+                i += 2;
             }
             else
             {
@@ -1642,6 +1672,8 @@ void cleanup_thread_pool()
         return;
     }
 
+    pthread_mutex_lock(&thread_pool_mutex);
+    
     for (int i = 0; i < thread_pool_size; i++)
     {
         if (thread_pool[i].busy)
@@ -1650,9 +1682,15 @@ void cleanup_thread_pool()
             pthread_join(thread_pool[i].thread, NULL);
         }
     }
-    free(thread_pool);
+    
+    ThreadInfo *temp = thread_pool;
     thread_pool = NULL;
     thread_pool_size = 0;
+    
+    pthread_mutex_unlock(&thread_pool_mutex);
+    
+    // Free after releasing lock and nullifying pointer
+    free(temp);
 }
 
 void cache_file(const char *path, const char *data, size_t size, const char *mime_type)

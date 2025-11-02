@@ -53,3 +53,6 @@ dkms.conf
 log/*
 server
 ssl/*
+# Allow .github/workflows for CI/CD
+.github/*
+!.github/workflows/
