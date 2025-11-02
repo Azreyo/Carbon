@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <openssl/sha.h>
 #include <openssl/bio.h>
@@ -242,6 +243,12 @@ int ws_create_frame(uint8_t *buffer, size_t buffer_size, uint8_t opcode, const u
 int ws_send_frame(ws_connection_t *conn, uint8_t opcode, const uint8_t *payload, size_t payload_len)
 {
     // Allocate buffer with enough space for header (max 10 bytes) + payload
+    // Check for integer overflow
+    if (payload_len > SIZE_MAX - 10)
+    {
+        return -1;
+    }
+    
     size_t max_frame_size = 10 + payload_len;
     if (max_frame_size > 65536)
     {

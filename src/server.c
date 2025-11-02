@@ -208,7 +208,15 @@ void configure_ssl_context(SSL_CTX *ctx)
 void set_socket_options(int socket_fd)
 {
     int flags = fcntl(socket_fd, F_GETFL, 0);
-    fcntl(socket_fd, F_SETFL, flags | O_NONBLOCK); // Make socket non-blocking
+    if (flags == -1)
+    {
+        perror("fcntl F_GETFL");
+        return;
+    }
+    if (fcntl(socket_fd, F_SETFL, flags | O_NONBLOCK) == -1)
+    {
+        perror("fcntl F_SETFL");
+    }
 
     int reuse = 1;
     int keepalive = 1;
@@ -318,6 +326,13 @@ void *start_http_server(void *arg)
                 {
                     pthread_t client_thread;
                     int *client_socket_ptr = malloc(sizeof(int));
+                    if (!client_socket_ptr)
+                    {
+                        perror("Failed to allocate memory for client socket");
+                        close(client_socket);
+                        pthread_mutex_unlock(&thread_count_mutex);
+                        continue;
+                    }
                     *client_socket_ptr = client_socket;
 
                     if (pthread_create(&client_thread, NULL, handle_http_client, client_socket_ptr) == 0)
@@ -401,6 +416,13 @@ void *start_https_server(void *arg)
         {
             pthread_t client_thread;
             int *client_socket_ptr = malloc(sizeof(int));
+            if (!client_socket_ptr)
+            {
+                perror("Failed to allocate memory for client socket");
+                close(client_socket);
+                pthread_mutex_unlock(&thread_count_mutex);
+                continue;
+            }
             *client_socket_ptr = client_socket;
 
             if (pthread_create(&client_thread, NULL, handle_https_client, client_socket_ptr) == 0)
@@ -826,7 +848,10 @@ void *handle_https_client(void *arg)
 
             // Set socket to non-blocking mode for HTTP/2
             int flags = fcntl(client_socket, F_GETFL, 0);
-            fcntl(client_socket, F_SETFL, flags | O_NONBLOCK);
+            if (flags != -1)
+            {
+                fcntl(client_socket, F_SETFL, flags | O_NONBLOCK);
+            }
 
             // Initialize HTTP/2 session
             http2_session_t h2_session;
