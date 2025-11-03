@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  carbon-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carbon-http-server
+    ports:
+      - "8080:8080"   # HTTP port
+      - "8443:8443"   # HTTPS port
+    volumes:
+      # Mount www directory for easy content updates
+      - ./www:/app/www:ro
+      # Mount log directory to persist logs
+      - ./log:/app/log
+      # Mount SSL certificates if using HTTPS
+      - ./ssl:/app/ssl:ro
+      # Mount config file
+      - ./server.conf:/app/server.conf:ro
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+    networks:
+      - carbon-net
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp
+
+networks:
+  carbon-net:
+    driver: bridge
