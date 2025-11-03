@@ -1,0 +1,36 @@
+# Git files
+.git
+.gitignore
+.github
+
+# Build artifacts
+server
+src/bin/
+*.o
+
+# Log files
+log/
+*.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation (except what we explicitly COPY)
+*.md
+!README.md
+!DOCUMENTATION.md
+
+# SSL certificates (mount these as volumes)
+ssl/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+test/
+tests/
