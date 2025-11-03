@@ -15,7 +15,8 @@ LIBS = -lssl -lcrypto -lmagic -lnghttp2
 
 # Source files and object files
 SRCS = src/server.c src/config_parser.c src/server_config.c src/websocket.c src/http2.c src/performance.c
-OBJS = $(SRCS:.c=.o)
+DEST = src/bin/
+OBJS = $(patsubst src/%.c,$(DEST)%.o,$(SRCS))
 TARGET = server
 
 # Header files
@@ -29,8 +30,12 @@ TOTAL_FILES := $(words $(SRCS))
 CURRENT_FILE = 0
 
 # Default target
-all: $(TARGET)
+all: $(DEST) $(TARGET)
 	@echo "$(GREEN)Build complete! ✓$(NC)"
+
+# Create bin directory
+$(DEST):
+	@mkdir -p $(DEST)
 
 # Linking
 $(TARGET): $(OBJS)
@@ -40,7 +45,7 @@ $(TARGET): $(OBJS)
 	@echo "$(GREEN)Linking successful ✓$(NC)"
 
 # Compilation with progress
-%.o: %.c $(HEADERS)
+$(DEST)%.o: src/%.c $(HEADERS)
 	@$(eval CURRENT_FILE=$(shell echo $$(($(CURRENT_FILE)+1))))
 	@echo "$(YELLOW)Building [$$(( $(CURRENT_FILE) * 100 / $(TOTAL_FILES) ))%] $<$(NC)"
 	@$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@ \
@@ -50,6 +55,7 @@ $(TARGET): $(OBJS)
 clean:
 	@echo "$(BLUE)Cleaning build files...$(NC)"
 	@rm -f $(OBJS) $(TARGET)
+	@rm -rf $(DEST)
 	@echo "$(GREEN)Clean complete ✓$(NC)"
 
 # Install dependencies (for Debian/Ubuntu/Raspberry Pi OS)
@@ -60,7 +66,9 @@ install-deps:
 		libssl-dev \
 		libcjson-dev \
 		libmagic-dev \
-		build-essential
+		build-essential \
+		libnghttp2-dev \
+		pkg-config
 	@echo "$(GREEN)Dependencies installed ✓$(NC)"
 
 # Debug build

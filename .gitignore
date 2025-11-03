@@ -56,3 +56,4 @@ ssl/*
 # Allow .github/workflows for CI/CD
 .github/*
 !.github/workflows/
+src/bin
