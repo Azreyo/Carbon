@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd -m -u 1000 -s /bin/bash carbon
 
 WORKDIR /app
-RUN mkdir -p /app/www /app/log /app/ssl/cert && \
+RUN mkdir -p /app/www /app/log /app/ssl/cert /app/ssl/key && \
     chown -R carbon:carbon /app
 
 COPY --from=builder /build/server /app/
@@ -52,7 +52,7 @@ RUN chown -R carbon:carbon /app
 
 USER carbon
 
-EXPOSE 8080 443
+EXPOSE 8080 8443
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/ || exit 1
