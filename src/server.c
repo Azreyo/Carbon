@@ -22,6 +22,7 @@
 #include <sys/time.h>
 #include <sched.h>
 #include <sys/resource.h>
+#include <sys/uio.h>
 
 #include "server_config.h"
 #include "websocket.h"
@@ -58,15 +59,15 @@
     "font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline';\r\n"
 
 #define RATE_LIMIT_WINDOW 60 // 60 seconds
-#define MAX_REQUESTS 100     // max requests per window
+#define MAX_REQUESTS 500     // max requests per window
 
 #define LOG_BUFFER_SIZE 4096
 #define MAX_LOG_FILE_SIZE (100 * 1024 * 1024) // 100MB max log file size
 
-#define SOCKET_SEND_BUFFER_SIZE (256 * 1024) // 256KB
-#define SOCKET_RECV_BUFFER_SIZE (256 * 1024) // 256KB
-#define SOCKET_BACKLOG 128                   // Increased from 50
-#define EPOLL_TIMEOUT 100                    // 100ms timeout
+#define SOCKET_SEND_BUFFER_SIZE (512 * 1024) // 512KB for faster throughput
+#define SOCKET_RECV_BUFFER_SIZE (512 * 1024) // 512KB
+#define SOCKET_BACKLOG 256                   
+#define EPOLL_TIMEOUT 50                     // 50ms timeout for faster polling
 
 #define MAX_THREAD_POOL_SIZE 64
 #define WORKER_QUEUE_SIZE 2048
@@ -689,29 +690,47 @@ void *handle_http_client(void *arg)
 
         if (cached)
         {
-            // Serve from cache
-            char response_header[1024];
+            // Serve from cache - optimized with writev for single syscall
+            char response_header[2048];
             int header_len = snprintf(response_header, sizeof(response_header),
                                       "HTTP/1.1 200 OK\r\n"
                                       "Content-Length: %zu\r\n"
                                       "Content-Type: %s\r\n"
+                                      "Cache-Control: public, max-age=86400, immutable\r\n"
+                                      "ETag: \"%zu-%ld\"\r\n"
                                       "%s"
                                       "\r\n",
                                       cached->size,
                                       cached->mime_type,
+                                      cached->size,
+                                      cached->last_access,
                                       SECURITY_HEADERS);
 
-            send(client_socket, response_header, header_len, 0);
-
-            // Send cached data
-            size_t total_sent = 0;
-            while (total_sent < cached->size)
+            // Use writev to send header + content in one syscall (for small files)
+            if (cached->size < 65536) // Files < 64KB
             {
-                ssize_t sent = send(client_socket, (char *)cached->mmap_data + total_sent,
-                                    cached->size - total_sent, 0);
-                if (sent <= 0)
-                    break;
-                total_sent += sent;
+                struct iovec iov[2];
+                iov[0].iov_base = response_header;
+                iov[0].iov_len = header_len;
+                iov[1].iov_base = cached->mmap_data;
+                iov[1].iov_len = cached->size;
+                ssize_t written = writev(client_socket, iov, 2);
+                (void)written; // Mark as used to avoid warning
+            }
+            else
+            {
+                // Send header first, then data in chunks for larger files
+                send(client_socket, response_header, header_len, 0);
+                
+                size_t total_sent = 0;
+                while (total_sent < cached->size)
+                {
+                    ssize_t sent = send(client_socket, (char *)cached->mmap_data + total_sent,
+                                        cached->size - total_sent, 0);
+                    if (sent <= 0)
+                        break;
+                    total_sent += sent;
+                }
             }
 
             release_cached_file(cached);
@@ -748,15 +767,19 @@ void *handle_http_client(void *arg)
                 cache_file_mmap(filepath, st.st_size, mime_type);
             }
 
-            char response_header[1024];
+            char response_header[2048];
             int header_len = snprintf(response_header, sizeof(response_header),
                                       "HTTP/1.1 200 OK\r\n"
                                       "Content-Length: %ld\r\n"
                                       "Content-Type: %s\r\n"
+                                      "Cache-Control: public, max-age=86400\r\n"
+                                      "ETag: \"%ld-%ld\"\r\n"
                                       "%s"
                                       "\r\n",
                                       (long)st.st_size,
                                       mime_type,
+                                      (long)st.st_size,
+                                      (long)st.st_mtime,
                                       SECURITY_HEADERS);
 
             free(mime_type);
@@ -1002,25 +1025,29 @@ void *handle_https_client(void *arg)
 
     if (cached)
     {
-        // Serve from cache (fast path)
-        char response_header[1024];
+        // Serve from cache
+        char response_header[2048];
         int header_len = snprintf(response_header, sizeof(response_header),
                                   "HTTP/1.1 200 OK\r\n"
                                   "Content-Length: %zu\r\n"
                                   "Content-Type: %s\r\n"
+                                  "Cache-Control: public, max-age=86400, immutable\r\n"
+                                  "ETag: \"%zu-%ld\"\r\n"
                                   "%s"
                                   "\r\n",
                                   cached->size,
                                   cached->mime_type,
+                                  cached->size,
+                                  cached->last_access,
                                   SECURITY_HEADERS);
 
         SSL_write(ssl, response_header, header_len);
 
-        // Send cached data directly from memory
+        // Send cached data
         size_t total_sent = 0;
         while (total_sent < cached->size)
         {
-            int to_send = (cached->size - total_sent > 16384) ? 16384 : (cached->size - total_sent);
+            int to_send = (cached->size - total_sent > 65536) ? 65536 : (cached->size - total_sent);
             int sent = SSL_write(ssl, (char *)cached->mmap_data + total_sent, to_send);
             if (sent <= 0)
                 break;
@@ -1062,15 +1089,19 @@ void *handle_https_client(void *arg)
         cache_file_mmap(filepath, st.st_size, mime_type);
     }
 
-    char response_header[1024];
+    char response_header[2048];
     int header_len = snprintf(response_header, sizeof(response_header),
                               "HTTP/1.1 200 OK\r\n"
                               "Content-Length: %ld\r\n"
                               "Content-Type: %s\r\n"
+                              "Cache-Control: public, max-age=86400\r\n"
+                              "ETag: \"%ld-%ld\"\r\n"
                               "%s"
                               "\r\n",
                               (long)st.st_size,
                               mime_type,
+                              (long)st.st_size,
+                              (long)st.st_mtime,
                               SECURITY_HEADERS);
 
     free(mime_type);
@@ -1334,12 +1365,48 @@ void *worker_thread(void *arg)
 
 void initialize_thread_pool()
 {
-    thread_pool = calloc(MAX_THREAD_POOL_SIZE, sizeof(ThreadInfo));
+    thread_pool_size = config.max_threads;
+    thread_pool = calloc(thread_pool_size, sizeof(ThreadInfo));
     if (!thread_pool)
     {
-        perror("Failed to allocate thread pool");
-        exit(EXIT_FAILURE);
+        log_event("Failed to allocate thread pool");
     }
+    
+    // Initialize worker queue
+    init_task_queue(&worker_queue);
+    
+    // Create worker threads
+    int num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    num_worker_threads = (num_cpus > 0) ? num_cpus * 2 : 8;
+    if (num_worker_threads > MAX_THREAD_POOL_SIZE)
+    {
+        num_worker_threads = MAX_THREAD_POOL_SIZE;
+    }
+    
+    worker_threads = calloc(num_worker_threads, sizeof(pthread_t));
+    if (!worker_threads)
+    {
+        log_event("Failed to allocate worker threads");
+        return;
+    }
+    
+    for (int i = 0; i < num_worker_threads; i++)
+    {
+        int *thread_id = malloc(sizeof(int));
+        if (thread_id)
+        {
+            *thread_id = i;
+            if (pthread_create(&worker_threads[i], NULL, worker_thread, thread_id) != 0)
+            {
+                log_event("Failed to create worker thread");
+                free(thread_id);
+            }
+        }
+    }
+    
+    char msg[256];
+    snprintf(msg, sizeof(msg), "Initialized %d worker threads on %d CPUs", num_worker_threads, num_cpus);
+    log_event(msg);
 }
 
 int main()
