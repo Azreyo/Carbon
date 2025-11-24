@@ -34,6 +34,8 @@ typedef struct
     char *path;
     void *mmap_data;
     size_t size;
+    void *compressed_data;
+    size_t compressed_size;
     time_t last_access;
     char *mime_type;
     int ref_count;

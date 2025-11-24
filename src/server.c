@@ -716,27 +716,42 @@ void *handle_http_client(void *arg)
             unsigned char *compressed_data = NULL;
             size_t compressed_size = 0;
             int using_compression = 0;
-            
-            char debug_msg[256];
-            snprintf(debug_msg, sizeof(debug_msg), "accepts_gzip=%d, should_compress=%d, size=%zu", 
-                    accepts_gzip, should_compress(cached->mime_type), cached->size);
-            log_event(debug_msg);
+            int needs_free = 0;
             
             if (accepts_gzip && should_compress(cached->mime_type) && cached->size > 1024)
             {
-                compressed_data = gzip_compress((unsigned char *)cached->mmap_data, cached->size, &compressed_size);
-                if (compressed_data && compressed_size < cached->size * 0.9) // Only use if 10%+ savings
+                // Check if we have cached compressed version
+                if (cached->compressed_data && cached->compressed_size > 0)
                 {
+                    // Use pre-compressed cached data
+                    compressed_data = cached->compressed_data;
+                    compressed_size = cached->compressed_size;
                     using_compression = 1;
-                    snprintf(debug_msg, sizeof(debug_msg), "Compression: %zu -> %zu bytes (%.1f%%)", 
-                            cached->size, compressed_size, (compressed_size * 100.0) / cached->size);
-                    log_event(debug_msg);
+                    needs_free = 0;
                 }
-                else if (compressed_data)
+                else
                 {
-                    log_event("Compression not efficient enough, skipping");
-                    free(compressed_data);
-                    compressed_data = NULL;
+                    // Compress on-the-fly and cache it
+                    compressed_data = gzip_compress((unsigned char *)cached->mmap_data, cached->size, &compressed_size);
+                    if (compressed_data && compressed_size < cached->size * 0.9)
+                    {
+                        using_compression = 1;
+                        needs_free = 1;
+                        
+                        // Cache the compressed version for future requests
+                        cached->compressed_data = malloc(compressed_size);
+                        if (cached->compressed_data)
+                        {
+                            memcpy(cached->compressed_data, compressed_data, compressed_size);
+                            cached->compressed_size = compressed_size;
+                            needs_free = 0;
+                        }
+                    }
+                    else if (compressed_data)
+                    {
+                        free(compressed_data);
+                        compressed_data = NULL;
+                    }
                 }
             }
 
@@ -790,7 +805,7 @@ void *handle_http_client(void *arg)
                 }
             }
 
-            if (compressed_data)
+            if (needs_free && compressed_data)
                 free(compressed_data);
             release_cached_file(cached);
             free(mime_type);
@@ -1098,18 +1113,40 @@ void *handle_https_client(void *arg)
         unsigned char *compressed_data = NULL;
         size_t compressed_size = 0;
         int using_compression = 0;
+        int needs_free = 0;
         
         if (accepts_gzip && should_compress(cached->mime_type) && cached->size > 1024)
         {
-            compressed_data = gzip_compress((unsigned char *)cached->mmap_data, cached->size, &compressed_size);
-            if (compressed_data && compressed_size < cached->size * 0.9)
+            // Check if we have cached compressed version
+            if (cached->compressed_data && cached->compressed_size > 0)
             {
+                compressed_data = cached->compressed_data;
+                compressed_size = cached->compressed_size;
                 using_compression = 1;
+                needs_free = 0;
             }
-            else if (compressed_data)
+            else
             {
-                free(compressed_data);
-                compressed_data = NULL;
+                compressed_data = gzip_compress((unsigned char *)cached->mmap_data, cached->size, &compressed_size);
+                if (compressed_data && compressed_size < cached->size * 0.9)
+                {
+                    using_compression = 1;
+                    needs_free = 1;
+                    
+                    // Cache the compressed version
+                    cached->compressed_data = malloc(compressed_size);
+                    if (cached->compressed_data)
+                    {
+                        memcpy(cached->compressed_data, compressed_data, compressed_size);
+                        cached->compressed_size = compressed_size;
+                        needs_free = 0;
+                    }
+                }
+                else if (compressed_data)
+                {
+                    free(compressed_data);
+                    compressed_data = NULL;
+                }
             }
         }
 
@@ -1150,7 +1187,7 @@ void *handle_https_client(void *arg)
             total_sent += sent;
         }
 
-        if (compressed_data)
+        if (needs_free && compressed_data)
             free(compressed_data);
         release_cached_file(cached);
         free(mime_type);

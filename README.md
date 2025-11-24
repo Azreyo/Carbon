@@ -97,6 +97,7 @@ sudo apt-get install -y \
     libssl-dev \
     libmagic-dev \
     libnghttp2-dev \
+    zlib1g-dev \
     pkg-config
 ```
 
@@ -111,7 +112,7 @@ cd Carbon
 
 # Install dependencies
 sudo apt-get update
-sudo apt-get install -y build-essential libssl-dev libmagic-dev libnghttp2-dev
+sudo apt-get install -y build-essential libssl-dev libmagic-dev libnghttp2-dev zlib1g-dev pkg-config
 
 # Build the server
 make

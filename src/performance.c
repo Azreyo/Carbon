@@ -218,6 +218,10 @@ void cache_file_mmap(const char *path, size_t size, const char *mime_type)
         {
             munmap(mmap_cache[slot].mmap_data, mmap_cache[slot].size);
         }
+        if (mmap_cache[slot].compressed_data)
+        {
+            free(mmap_cache[slot].compressed_data);
+        }
         free(mmap_cache[slot].path);
         free(mmap_cache[slot].mime_type);
     }
@@ -249,6 +253,8 @@ void cache_file_mmap(const char *path, size_t size, const char *mime_type)
     mmap_cache[slot].path = strdup(path);
     mmap_cache[slot].mmap_data = mapped;
     mmap_cache[slot].size = size;
+    mmap_cache[slot].compressed_data = NULL;
+    mmap_cache[slot].compressed_size = 0;
     mmap_cache[slot].last_access = time(NULL);
     mmap_cache[slot].mime_type = strdup(mime_type);
     mmap_cache[slot].ref_count = 0;

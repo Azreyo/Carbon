@@ -57,3 +57,4 @@ ssl/*
 .github/*
 !.github/workflows/
 src/bin
+docker-push.sh
