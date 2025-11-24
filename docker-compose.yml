@@ -2,24 +2,14 @@ version: '3.8'
 
 services:
   carbon-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: azreyo/carbon:latest
     container_name: carbon-http-server
     ports:
       - "8080:8080"   # HTTP port
       - "8443:8443"   # HTTPS port
-    volumes:
-      # Mount www directory for easy content updates
-      - ./www:/app/www:ro
-      # Mount log directory to persist logs
-      - ./log:/app/log
-      # Mount SSL certificates if using HTTPS
-      - ./ssl:/app/ssl:ro
-      # Mount config file
-      - ./server.conf:/app/server.conf:ro
     environment:
       - TZ=UTC
+      - SERVER_NAME=yourdomain.com  # Change this to your domain or IP
     restart: unless-stopped
     networks:
       - carbon-net
@@ -42,6 +32,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+      - /app/log
 
 networks:
   carbon-net:

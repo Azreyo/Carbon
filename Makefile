@@ -9,8 +9,10 @@ NC := \033[0m
 
 # Compiler and flags
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -D_GNU_SOURCE
-LDFLAGS = -pthread
+CFLAGS = -Wall -Wextra -Werror -O3 -march=native -mtune=native -flto -D_GNU_SOURCE -fstack-protector-strong
+CFLAGS += -fPIE -fno-strict-overflow -Wformat -Wformat-security -Werror=format-security
+CFLAGS += -D_FORTIFY_SOURCE=2 -fvisibility=hidden
+LDFLAGS = -pthread -Wl,-z,relro,-z,now -pie
 LIBS = -lssl -lcrypto -lmagic -lnghttp2
 
 # Source files and object files
@@ -72,11 +74,20 @@ install-deps:
 	@echo "$(GREEN)Dependencies installed ✓$(NC)"
 
 # Debug build
-debug: CFLAGS += -g -DDEBUG
+debug: CFLAGS = -Wall -Wextra -g -DDEBUG -D_GNU_SOURCE -fstack-protector-strong -O0
 debug: clean all
 
-# Release build
-release: CFLAGS += -O3 -march=native -flto
+# Release build with maximum optimizations
+release: CFLAGS = -Wall -Wextra -O3 -march=native -mtune=native -flto -D_GNU_SOURCE
+release: CFLAGS += -fPIE -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fomit-frame-pointer
+release: CFLAGS += -funroll-loops -finline-functions -ffast-math
 release: clean all
+
+# Profile-guided optimization build
+pgo-generate: CFLAGS += -fprofile-generate
+pgo-generate: clean all
+
+pgo-use: CFLAGS += -fprofile-use -fprofile-correction
+pgo-use: clean all
 
 .PHONY: all clean install-deps debug release

@@ -25,6 +25,43 @@ const char *response_404_header = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found"
 const char *response_403_header = "HTTP/1.1 403 Forbidden\r\n\r\nAccess Denied";
 const char *response_429_header = "HTTP/1.1 429 Too Many Requests\r\n\r\nRate limit exceeded";
 const char *response_500_header = "HTTP/1.1 500 Internal Server Error\r\n\r\nInternal Server Error";
+const char *response_503_header = "HTTP/1.1 503 Service Unavailable\r\n\r\nServer overloaded";
+
+// Common MIME types cache
+typedef struct {
+    const char *ext;
+    const char *mime;
+} mime_cache_t;
+
+static const mime_cache_t mime_cache[] = {
+    {".html", "text/html"},
+    {".css", "text/css"},
+    {".js", "application/javascript"},
+    {".json", "application/json"},
+    {".png", "image/png"},
+    {".jpg", "image/jpeg"},
+    {".jpeg", "image/jpeg"},
+    {".gif", "image/gif"},
+    {".svg", "image/svg+xml"},
+    {".ico", "image/x-icon"},
+    {".webp", "image/webp"},
+    {".woff", "font/woff"},
+    {".woff2", "font/woff2"},
+    {".ttf", "font/ttf"},
+    {".pdf", "application/pdf"},
+    {".xml", "application/xml"},
+    {".txt", "text/plain"},
+    {NULL, NULL}
+};
+
+const char *get_mime_from_cache(const char *ext) {
+    for (int i = 0; mime_cache[i].ext != NULL; i++) {
+        if (strcasecmp(ext, mime_cache[i].ext) == 0) {
+            return mime_cache[i].mime;
+        }
+    }
+    return "application/octet-stream";
+}
 
 // Task queue implementation
 void init_task_queue(task_queue_t *queue)
@@ -38,7 +75,7 @@ void init_task_queue(task_queue_t *queue)
 
 void enqueue_task(task_queue_t *queue, int socket_fd, SSL *ssl, bool is_https)
 {
-    if (queue->count >= INT_MAX - 1)
+    if (queue->count >= WORKER_QUEUE_SIZE - 1)
     {
         return;
     }
@@ -270,18 +307,35 @@ void init_buffer_pool(void)
 
 char *get_buffer_from_pool(size_t min_size)
 {
+    if (min_size > DEFAULT_BUFFER_SIZE * 4)
+    {
+        // For very large requests, allocate directly
+        return malloc(min_size);
+    }
+    
     pthread_mutex_lock(&buffer_pool_mutex);
 
     buffer_pool_t *current = buffer_pool;
+    buffer_pool_t *best_fit = NULL;
+    
+    // Find best fit buffer (smallest that fits)
     while (current)
     {
         if (!current->in_use && current->size >= min_size)
         {
-            current->in_use = true;
-            pthread_mutex_unlock(&buffer_pool_mutex);
-            return current->buffer;
+            if (!best_fit || current->size < best_fit->size)
+            {
+                best_fit = current;
+            }
         }
         current = current->next;
+    }
+    
+    if (best_fit)
+    {
+        best_fit->in_use = true;
+        pthread_mutex_unlock(&buffer_pool_mutex);
+        return best_fit->buffer;
     }
 
     pthread_mutex_unlock(&buffer_pool_mutex);
