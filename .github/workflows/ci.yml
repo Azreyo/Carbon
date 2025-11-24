@@ -37,8 +37,8 @@ jobs:
           make clean && make
           # Verify the binary was created
           test -f server && echo "✓ Server binary built successfully"
-          # Basic smoke tests
-          ./server --help || echo "✓ Server executable is valid"
+          # Basic smoke tests - verify it's a valid ELF executable
+          file server | grep -q "ELF.*executable" && echo "✓ Server executable is valid"
           echo "✓ All tests passed"
 
   security-scan:

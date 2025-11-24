@@ -11,16 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libnghttp2-dev \
     pkg-config \
     build-essential \
+    git \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 
 WORKDIR /build
 
-COPY src/ ./src/
-COPY Makefile .
-COPY server.conf .
-
-RUN make clean && make release
+RUN git clone --depth 1 --branch main https://github.com/Azreyo/Carbon.git . && \
+    make clean && make release
 
 FROM debian:bookworm-slim
 
@@ -44,16 +43,16 @@ RUN mkdir -p /app/www /app/log /app/ssl/cert && \
 
 COPY --from=builder /build/server /app/
 COPY --from=builder /build/server.conf /app/
-
-COPY www/ ./www/
-
-COPY README.md DOCUMENTATION.md LICENSE ./
+COPY --from=builder /build/www/ /app/www/
+COPY --from=builder /build/README.md /app/
+COPY --from=builder /build/DOCUMENTATION.md /app/
+COPY --from=builder /build/LICENSE /app/
 
 RUN chown -R carbon:carbon /app
 
 USER carbon
 
-EXPOSE 8080 8443
+EXPOSE 8080 443
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/ || exit 1
