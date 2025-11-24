@@ -6,6 +6,9 @@
 #include <time.h>
 #include <sys/mman.h>
 #include <openssl/ssl.h>
+#include <pthread.h>
+
+#define WORKER_QUEUE_SIZE 2048
 
 // Connection pool structures
 typedef struct connection_task_t
@@ -68,5 +71,9 @@ extern const char *response_404_header;
 extern const char *response_403_header;
 extern const char *response_429_header;
 extern const char *response_500_header;
+extern const char *response_503_header;
+
+// MIME type cache
+const char *get_mime_from_cache(const char *ext);
 
 #endif

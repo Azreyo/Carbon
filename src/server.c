@@ -20,6 +20,8 @@
 #include <time.h>
 #include <sys/sendfile.h>
 #include <sys/time.h>
+#include <sched.h>
+#include <sys/resource.h>
 
 #include "server_config.h"
 #include "websocket.h"
@@ -66,7 +68,8 @@
 #define SOCKET_BACKLOG 128                   // Increased from 50
 #define EPOLL_TIMEOUT 100                    // 100ms timeout
 
-#define MAX_THREAD_POOL_SIZE 32
+#define MAX_THREAD_POOL_SIZE 64
+#define WORKER_QUEUE_SIZE 2048
 
 #define MAX_CACHE_SIZE 100
 #define MAX_CACHE_FILE_SIZE (1024 * 1024)     // 1MB
@@ -76,12 +79,19 @@ typedef struct
 {
     pthread_t thread;
     int busy;
+    int cpu_core;
 } ThreadInfo;
 
 ThreadInfo *thread_pool;
 int thread_pool_size = 0;
 pthread_mutex_t thread_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t thread_pool_cond = PTHREAD_COND_INITIALIZER;
+
+// Worker thread queue
+task_queue_t worker_queue;
+pthread_t *worker_threads = NULL;
+int num_worker_threads = 0;
+volatile int workers_running = 1;
 
 typedef struct
 {
@@ -122,6 +132,9 @@ pthread_mutex_t rate_limit_mutex = PTHREAD_MUTEX_INITIALIZER;
 void cleanup_thread_pool(void);
 void *handle_http_client(void *arg);
 void *handle_https_client(void *arg);
+void *worker_thread(void *arg);
+void set_cpu_affinity(int thread_id);
+void optimize_socket_for_send(int socket_fd);
 void log_event(const char *message);
 void initialize_openssl();
 void cleanup_openssl();
@@ -182,7 +195,14 @@ void configure_ssl_context(SSL_CTX *ctx)
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
-
+    
+    // Security hardening
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1);
+    SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION); // Disable compression (CRIME attack)
+    SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+    
+    // Use secure ciphers only - TLS 1.3 and strong TLS 1.2 ciphers
     const char *cipher_list = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
                               "TLS_AES_128_GCM_SHA256:"  // TLS 1.3
                               "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:"
@@ -194,8 +214,6 @@ void configure_ssl_context(SSL_CTX *ctx)
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
-    
-    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 
     // Enable HTTP/2 ALPN if configured
     if (config.enable_http2)
@@ -203,6 +221,18 @@ void configure_ssl_context(SSL_CTX *ctx)
         SSL_CTX_set_alpn_select_cb(ctx, alpn_select_proto_cb, NULL);
         log_event("HTTP/2 ALPN enabled");
     }
+}
+
+void optimize_socket_for_send(int socket_fd)
+{
+    int flag = 1;
+    // Enable TCP_NODELAY to disable Nagle's algorithm for low latency
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+    
+#ifdef TCP_QUICKACK
+    // Enable quick ACK for faster response
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_QUICKACK, &flag, sizeof(flag));
+#endif
 }
 
 void set_socket_options(int socket_fd)
@@ -321,37 +351,18 @@ void *start_http_server(void *arg)
                     continue;
                 }
 
-                pthread_mutex_lock(&thread_count_mutex);
-                if (num_client_threads < config.max_connections)
+                // Enqueue task to worker thread pool instead of creating new thread
+                if (worker_queue.count < WORKER_QUEUE_SIZE)
                 {
-                    pthread_t client_thread;
-                    int *client_socket_ptr = malloc(sizeof(int));
-                    if (!client_socket_ptr)
-                    {
-                        perror("Failed to allocate memory for client socket");
-                        close(client_socket);
-                        pthread_mutex_unlock(&thread_count_mutex);
-                        continue;
-                    }
-                    *client_socket_ptr = client_socket;
-
-                    if (pthread_create(&client_thread, NULL, handle_http_client, client_socket_ptr) == 0)
-                    {
-                        client_threads[num_client_threads++] = client_thread;
-                    }
-                    else
-                    {
-                        perror("Error creating HTTP client thread");
-                        close(client_socket);
-                        free(client_socket_ptr);
-                    }
+                    enqueue_task(&worker_queue, client_socket, NULL, false);
                 }
                 else
                 {
-                    log_event("Max client threads reached, rejecting connection.");
+                    log_event("Worker queue full, rejecting connection.");
+                    const char *overload_response = "HTTP/1.1 503 Service Unavailable\r\n\r\nServer overloaded";
+                    send(client_socket, overload_response, strlen(overload_response), 0);
                     close(client_socket);
                 }
-                pthread_mutex_unlock(&thread_count_mutex);
             }
         }
     }
@@ -411,37 +422,18 @@ void *start_https_server(void *arg)
             break;
         }
 
-        pthread_mutex_lock(&thread_count_mutex);
-        if (num_client_threads < config.max_connections)
+        // Enqueue task to worker thread pool instead of creating new thread
+        if (worker_queue.count < WORKER_QUEUE_SIZE)
         {
-            pthread_t client_thread;
-            int *client_socket_ptr = malloc(sizeof(int));
-            if (!client_socket_ptr)
-            {
-                perror("Failed to allocate memory for client socket");
-                close(client_socket);
-                pthread_mutex_unlock(&thread_count_mutex);
-                continue;
-            }
-            *client_socket_ptr = client_socket;
-
-            if (pthread_create(&client_thread, NULL, handle_https_client, client_socket_ptr) == 0)
-            {
-                client_threads[num_client_threads++] = client_thread;
-            }
-            else
-            {
-                perror("Error creating HTTPS client thread");
-                close(client_socket);
-                free(client_socket_ptr);
-            }
+            enqueue_task(&worker_queue, client_socket, NULL, true);
         }
         else
         {
-            log_event("Max client threads reached, rejecting connection.");
+            log_event("Worker queue full (HTTPS), rejecting connection.");
+            const char *overload_response = "HTTP/1.1 503 Service Unavailable\r\n\r\nServer overloaded";
+            send(client_socket, overload_response, strlen(overload_response), 0);
             close(client_socket);
         }
-        pthread_mutex_unlock(&thread_count_mutex);
     }
 
     close(https_socket);
@@ -1271,6 +1263,75 @@ void signal_handler(int sig)
     }
 }
 
+void set_cpu_affinity(int thread_id)
+{
+#ifdef __linux__
+    int num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    if (num_cpus > 0)
+    {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(thread_id % num_cpus, &cpuset);
+        
+        if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) != 0)
+        {
+            log_event("Warning: Failed to set CPU affinity");
+        }
+    }
+#endif
+}
+
+void *worker_thread(void *arg)
+{
+    int thread_id = *((int *)arg);
+    free(arg);
+    
+    // Set CPU affinity for this worker thread
+    set_cpu_affinity(thread_id);
+    
+    char log_msg[256];
+    int num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    snprintf(log_msg, sizeof(log_msg), "Worker thread %d started on CPU %d", thread_id, thread_id % num_cpus);
+    log_event(log_msg);
+    
+    while (workers_running)
+    {
+        connection_task_t *task = dequeue_task(&worker_queue);
+        
+        if (!task || !workers_running)
+        {
+            break;
+        }
+        
+        // Optimize socket before handling
+        optimize_socket_for_send(task->socket_fd);
+        
+        // Handle the connection based on type
+        if (task->is_https)
+        {
+            int *socket_ptr = malloc(sizeof(int));
+            if (socket_ptr)
+            {
+                *socket_ptr = task->socket_fd;
+                handle_https_client(socket_ptr);
+            }
+        }
+        else
+        {
+            int *socket_ptr = malloc(sizeof(int));
+            if (socket_ptr)
+            {
+                *socket_ptr = task->socket_fd;
+                handle_http_client(socket_ptr);
+            }
+        }
+        
+        free(task);
+    }
+    
+    return NULL;
+}
+
 void initialize_thread_pool()
 {
     thread_pool = calloc(MAX_THREAD_POOL_SIZE, sizeof(ThreadInfo));
@@ -1692,21 +1753,35 @@ int check_rate_limit(const char *ip)
 
 void cleanup_thread_pool()
 {
+    // Signal worker threads to stop
+    workers_running = 0;
+    
+    // Wake up all waiting workers
+    pthread_mutex_lock(&worker_queue.mutex);
+    pthread_cond_broadcast(&worker_queue.cond);
+    pthread_mutex_unlock(&worker_queue.mutex);
+    
+    // Join all worker threads
+    if (worker_threads)
+    {
+        for (int i = 0; i < num_worker_threads; i++)
+        {
+            pthread_join(worker_threads[i], NULL);
+        }
+        free(worker_threads);
+        worker_threads = NULL;
+    }
+    
+    // Cleanup worker queue
+    destroy_task_queue(&worker_queue);
+    
+    // Cleanup old thread pool structure if exists
     if (!thread_pool)
     {
         return;
     }
 
     pthread_mutex_lock(&thread_pool_mutex);
-    
-    for (int i = 0; i < thread_pool_size; i++)
-    {
-        if (thread_pool[i].busy)
-        {
-            pthread_cancel(thread_pool[i].thread);
-            pthread_join(thread_pool[i].thread, NULL);
-        }
-    }
     
     ThreadInfo *temp = thread_pool;
     thread_pool = NULL;
