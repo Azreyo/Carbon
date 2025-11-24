@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic-dev \
     libnghttp2-dev \
     pkg-config \
+    zlib1g-dev \
     build-essential \
     git \
     ca-certificates \
