@@ -13,7 +13,7 @@ CFLAGS = -Wall -Wextra -Werror -O3 -march=native -mtune=native -flto -D_GNU_SOUR
 CFLAGS += -fPIE -fno-strict-overflow -Wformat -Wformat-security -Werror=format-security
 CFLAGS += -D_FORTIFY_SOURCE=2 -fvisibility=hidden
 LDFLAGS = -pthread -Wl,-z,relro,-z,now -pie
-LIBS = -lssl -lcrypto -lmagic -lnghttp2
+LIBS = -lssl -lcrypto -lmagic -lnghttp2 -lz
 
 # Source files and object files
 SRCS = src/server.c src/config_parser.c src/server_config.c src/websocket.c src/http2.c src/performance.c
