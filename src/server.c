@@ -23,6 +23,7 @@
 #include <sched.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
+#include <zlib.h>
 
 #include "server_config.h"
 #include "websocket.h"
@@ -148,6 +149,9 @@ int parse_request_line(char *request_buffer, char *method, char *url, char *prot
 char *get_mime_type(const char *filepath);
 char *sanitize_url(const char *url);
 int check_rate_limit(const char *ip);
+int should_compress(const char *mime_type);
+unsigned char *gzip_compress(const unsigned char *data, size_t size, size_t *compressed_size);
+char *stristr(const char *haystack, const char *needle);
 
 void initialize_openssl()
 {
@@ -574,6 +578,10 @@ void *handle_http_client(void *arg)
         request_buffer[bytes_received] = '\0';
         log_event("Received HTTP request");
 
+        // Check if client accepts gzip BEFORE parsing (parse modifies buffer!)
+        int accepts_gzip = (stristr(request_buffer, "accept-encoding:") && 
+                           stristr(request_buffer, "gzip")) ? 1 : 0;
+
         // Check for WebSocket upgrade request
         if (config.enable_websocket && is_websocket_upgrade(request_buffer))
         {
@@ -690,52 +698,89 @@ void *handle_http_client(void *arg)
 
         if (cached)
         {
-            // Serve from cache - optimized with writev for single syscall
+            // Check if we should compress
+            unsigned char *compressed_data = NULL;
+            size_t compressed_size = 0;
+            int using_compression = 0;
+            
+            char debug_msg[256];
+            snprintf(debug_msg, sizeof(debug_msg), "accepts_gzip=%d, should_compress=%d, size=%zu", 
+                    accepts_gzip, should_compress(cached->mime_type), cached->size);
+            log_event(debug_msg);
+            
+            if (accepts_gzip && should_compress(cached->mime_type) && cached->size > 1024)
+            {
+                compressed_data = gzip_compress((unsigned char *)cached->mmap_data, cached->size, &compressed_size);
+                if (compressed_data && compressed_size < cached->size * 0.9) // Only use if 10%+ savings
+                {
+                    using_compression = 1;
+                    snprintf(debug_msg, sizeof(debug_msg), "Compression: %zu -> %zu bytes (%.1f%%)", 
+                            cached->size, compressed_size, (compressed_size * 100.0) / cached->size);
+                    log_event(debug_msg);
+                }
+                else if (compressed_data)
+                {
+                    log_event("Compression not efficient enough, skipping");
+                    free(compressed_data);
+                    compressed_data = NULL;
+                }
+            }
+
+            // Serve from cache with optional compression
             char response_header[2048];
             int header_len = snprintf(response_header, sizeof(response_header),
                                       "HTTP/1.1 200 OK\r\n"
                                       "Content-Length: %zu\r\n"
                                       "Content-Type: %s\r\n"
                                       "Cache-Control: public, max-age=86400, immutable\r\n"
-                                      "ETag: \"%zu-%ld\"\r\n"
+                                      "ETag: \"%zu-%ld%s\"\r\n"
                                       "%s"
+                                      "%s"
+                                      "Keep-Alive: timeout=5, max=100\r\n"
+                                      "Connection: Keep-Alive\r\n"
                                       "\r\n",
-                                      cached->size,
+                                      using_compression ? compressed_size : cached->size,
                                       cached->mime_type,
                                       cached->size,
                                       cached->last_access,
+                                      using_compression ? "-gzip" : "",
+                                      using_compression ? "Content-Encoding: gzip\r\n" : "",
                                       SECURITY_HEADERS);
 
+            void *data_to_send = using_compression ? compressed_data : cached->mmap_data;
+            size_t size_to_send = using_compression ? compressed_size : cached->size;
+
             // Use writev to send header + content in one syscall (for small files)
-            if (cached->size < 65536) // Files < 64KB
+            if (size_to_send < 65536) // Files < 64KB
             {
                 struct iovec iov[2];
                 iov[0].iov_base = response_header;
                 iov[0].iov_len = header_len;
-                iov[1].iov_base = cached->mmap_data;
-                iov[1].iov_len = cached->size;
+                iov[1].iov_base = data_to_send;
+                iov[1].iov_len = size_to_send;
                 ssize_t written = writev(client_socket, iov, 2);
-                (void)written; // Mark as used to avoid warning
+                (void)written;
             }
             else
             {
-                // Send header first, then data in chunks for larger files
                 send(client_socket, response_header, header_len, 0);
                 
                 size_t total_sent = 0;
-                while (total_sent < cached->size)
+                while (total_sent < size_to_send)
                 {
-                    ssize_t sent = send(client_socket, (char *)cached->mmap_data + total_sent,
-                                        cached->size - total_sent, 0);
+                    ssize_t sent = send(client_socket, (char *)data_to_send + total_sent,
+                                        size_to_send - total_sent, 0);
                     if (sent <= 0)
                         break;
                     total_sent += sent;
                 }
             }
 
+            if (compressed_data)
+                free(compressed_data);
             release_cached_file(cached);
             free(mime_type);
-            log_event("Served file from cache");
+            log_event(using_compression ? "Served file from cache (gzip)" : "Served file from cache");
             goto done_serving;
         }
 
@@ -978,6 +1023,10 @@ void *handle_https_client(void *arg)
         log_event(protocol);
     }
 
+    // Check if client accepts gzip (case-insensitive)
+    int accepts_gzip = (stristr(buffer, "accept-encoding:") && 
+                       stristr(buffer, "gzip")) ? 1 : 0;
+
     char *sanitized_url = sanitize_url(url);
     if (!sanitized_url)
     {
@@ -1025,38 +1074,67 @@ void *handle_https_client(void *arg)
 
     if (cached)
     {
-        // Serve from cache
+        // Check if we should compress
+        unsigned char *compressed_data = NULL;
+        size_t compressed_size = 0;
+        int using_compression = 0;
+        
+        if (accepts_gzip && should_compress(cached->mime_type) && cached->size > 1024)
+        {
+            compressed_data = gzip_compress((unsigned char *)cached->mmap_data, cached->size, &compressed_size);
+            if (compressed_data && compressed_size < cached->size * 0.9)
+            {
+                using_compression = 1;
+            }
+            else if (compressed_data)
+            {
+                free(compressed_data);
+                compressed_data = NULL;
+            }
+        }
+
+        // Serve from cache with optional compression
         char response_header[2048];
         int header_len = snprintf(response_header, sizeof(response_header),
                                   "HTTP/1.1 200 OK\r\n"
                                   "Content-Length: %zu\r\n"
                                   "Content-Type: %s\r\n"
                                   "Cache-Control: public, max-age=86400, immutable\r\n"
-                                  "ETag: \"%zu-%ld\"\r\n"
+                                  "ETag: \"%zu-%ld%s\"\r\n"
                                   "%s"
+                                  "%s"
+                                  "Keep-Alive: timeout=5, max=100\r\n"
+                                  "Connection: Keep-Alive\r\n"
                                   "\r\n",
-                                  cached->size,
+                                  using_compression ? compressed_size : cached->size,
                                   cached->mime_type,
                                   cached->size,
                                   cached->last_access,
+                                  using_compression ? "-gzip" : "",
+                                  using_compression ? "Content-Encoding: gzip\r\n" : "",
                                   SECURITY_HEADERS);
 
         SSL_write(ssl, response_header, header_len);
 
-        // Send cached data
+        // Send compressed or uncompressed data
+        void *data_to_send = using_compression ? compressed_data : cached->mmap_data;
+        size_t size_to_send = using_compression ? compressed_size : cached->size;
+        
         size_t total_sent = 0;
-        while (total_sent < cached->size)
+        while (total_sent < size_to_send)
         {
-            int to_send = (cached->size - total_sent > 65536) ? 65536 : (cached->size - total_sent);
-            int sent = SSL_write(ssl, (char *)cached->mmap_data + total_sent, to_send);
+            int to_send = (size_to_send - total_sent > 65536) ? 65536 : (size_to_send - total_sent);
+            int sent = SSL_write(ssl, (char *)data_to_send + total_sent, to_send);
             if (sent <= 0)
                 break;
             total_sent += sent;
         }
 
+        if (compressed_data)
+            free(compressed_data);
         release_cached_file(cached);
         free(mime_type);
-        log_event("Served file from cache (mmap)");
+        log_event(using_compression ? "Served file from cache (gzip)" : "Served file from cache (mmap)");
         goto cleanup;
     }
 
@@ -1407,6 +1485,79 @@ void initialize_thread_pool()
     char msg[256];
     snprintf(msg, sizeof(msg), "Initialized %d worker threads on %d CPUs", num_worker_threads, num_cpus);
     log_event(msg);
+}
+
+// Case-insensitive strstr
+char *stristr(const char *haystack, const char *needle)
+{
+    if (!haystack || !needle) return NULL;
+    
+    size_t needle_len = strlen(needle);
+    if (needle_len == 0) return (char *)haystack;
+    
+    for (const char *p = haystack; *p; p++)
+    {
+        if (tolower(*p) == tolower(*needle))
+        {
+            size_t i;
+            for (i = 1; i < needle_len && p[i]; i++)
+            {
+                if (tolower(p[i]) != tolower(needle[i]))
+                    break;
+            }
+            if (i == needle_len)
+                return (char *)p;
+        }
+    }
+    return NULL;
+}
+
+// Check if MIME type should be compressed
+int should_compress(const char *mime_type)
+{
+    return (strstr(mime_type, "text/") != NULL ||
+            strstr(mime_type, "application/javascript") != NULL ||
+            strstr(mime_type, "application/json") != NULL ||
+            strstr(mime_type, "application/xml") != NULL);
+}
+
+// Gzip compress data
+unsigned char *gzip_compress(const unsigned char *data, size_t size, size_t *compressed_size)
+{
+    z_stream stream = {0};
+    stream.zalloc = Z_NULL;
+    stream.zfree = Z_NULL;
+    stream.opaque = Z_NULL;
+
+    if (deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK)
+    {
+        return NULL;
+    }
+
+    size_t max_compressed = deflateBound(&stream, size);
+    unsigned char *compressed = malloc(max_compressed);
+    if (!compressed)
+    {
+        deflateEnd(&stream);
+        return NULL;
+    }
+
+    stream.avail_in = size;
+    stream.next_in = (unsigned char *)data;
+    stream.avail_out = max_compressed;
+    stream.next_out = compressed;
+
+    if (deflate(&stream, Z_FINISH) != Z_STREAM_END)
+    {
+        free(compressed);
+        deflateEnd(&stream);
+        return NULL;
+    }
+
+    *compressed_size = stream.total_out;
+    deflateEnd(&stream);
+
+    return compressed;
 }
 
 int main()
