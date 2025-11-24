@@ -569,9 +569,23 @@ void *handle_http_client(void *arg)
         pthread_exit(NULL);
     }
 
-    char request_buffer[MAX_REQUEST_SIZE];
-    memset(request_buffer, 0, MAX_REQUEST_SIZE);
-    ssize_t bytes_received = recv(client_socket, request_buffer, MAX_REQUEST_SIZE - 1, 0);
+    // Set socket timeout for Keep-Alive (5 seconds)
+    struct timeval timeout;
+    timeout.tv_sec = 5;
+    timeout.tv_usec = 0;
+    setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    int keep_alive_count = 0;
+    const int max_keep_alive = 100;
+
+    // Keep-Alive loop: handle multiple requests on same connection
+    while (server_running && keep_alive_count < max_keep_alive)
+    {
+        keep_alive_count++;
+
+        char request_buffer[MAX_REQUEST_SIZE];
+        memset(request_buffer, 0, MAX_REQUEST_SIZE);
+        ssize_t bytes_received = recv(client_socket, request_buffer, MAX_REQUEST_SIZE - 1, 0);
 
     if (bytes_received > 0)
     {
@@ -844,10 +858,16 @@ void *handle_http_client(void *arg)
         }
 
     done_serving:
+        continue;
     }
     else if (bytes_received < 0)
     {
-        HANDLE_ERROR("Error receiving request");
+        break;
+    }
+    else if (bytes_received == 0)
+    {
+        break;
+    }
     }
 
     close(client_socket);
