@@ -5,34 +5,17 @@ services:
     image: azreyo/carbon:latest
     container_name: carbon-http-server
     ports:
-      - "8080:8080"   # HTTP port
-      - "8443:8443"   # HTTPS port
+      - "8080:8080"
+      - "8443:8443"
     environment:
-      - TZ=UTC
-      - SERVER_NAME=yourdomain.com  # Change this to your domain or IP
+      - SERVER_NAME=0.0.0.0
+      - PORT=8080
+      - USE_HTTPS=false
+      - ENABLE_HTTP2=false
+      - ENABLE_WEBSOCKET=false
+      - MAX_THREADS=4
+      - VERBOSE=true
     restart: unless-stopped
-    networks:
-      - carbon-net
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
-          memory: 128M
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    read_only: true
-    tmpfs:
-      - /tmp
-      - /app/log
 
 networks:
   carbon-net:
