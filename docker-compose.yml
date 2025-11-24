@@ -8,7 +8,7 @@ services:
     container_name: carbon-http-server
     ports:
       - "8080:8080"   # HTTP port
-      - "443:443"   # HTTPS port
+      - "8443:8443"   # HTTPS port
     volumes:
       # Mount www directory for easy content updates
       - ./www:/app/www:ro
