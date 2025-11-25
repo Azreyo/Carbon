@@ -60,7 +60,7 @@
     "font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline';\r\n"
 
 #define RATE_LIMIT_WINDOW 60 // 60 seconds
-#define MAX_REQUESTS 500     // max requests per window
+static int MAX_REQUESTS_DYNAMIC = 500; // Will be calculated dynamically
 
 #define LOG_BUFFER_SIZE 4096
 #define MAX_LOG_FILE_SIZE (100 * 1024 * 1024) // 100MB max log file size
@@ -152,6 +152,8 @@ int check_rate_limit(const char *ip);
 int should_compress(const char *mime_type);
 unsigned char *gzip_compress(const unsigned char *data, size_t size, size_t *compressed_size);
 char *stristr(const char *haystack, const char *needle);
+char *extract_header_value(const char *request, const char *header_name);
+int calculate_dynamic_rate_limit(void);
 
 void initialize_openssl()
 {
@@ -264,6 +266,17 @@ void set_socket_options(int socket_fd)
 #ifdef SO_REUSEPORT
     setsockopt(socket_fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
 #endif
+
+#ifdef TCP_DEFER_ACCEPT
+    int defer = 1;
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_DEFER_ACCEPT, &defer, sizeof(defer));
+#endif
+
+#ifdef TCP_FASTOPEN
+    int qlen = 128;
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_FASTOPEN, &qlen, sizeof(qlen));
+#endif
+
     setsockopt(socket_fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
     setsockopt(socket_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
     setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
@@ -707,11 +720,62 @@ void *handle_http_client(void *arg)
         // Get MIME type
         char *mime_type = get_mime_type(filepath);
 
+        // Check for conditional request headers
+        char *if_none_match = extract_header_value(request_buffer, "If-None-Match");
+        char *if_modified_since = extract_header_value(request_buffer, "If-Modified-Since");
+
         // Try cache first
         mmap_cache_entry_t *cached = get_cached_file(filepath);
 
         if (cached)
         {
+            // Generate current ETag
+            char current_etag[128];
+            snprintf(current_etag, sizeof(current_etag), "\"%zu-%ld\"", 
+                     cached->size, cached->last_access);
+            
+            // Check If-None-Match (ETag validation)
+            if (if_none_match)
+            {
+                // Strip quotes if present in the header value
+                char *etag_value = if_none_match;
+                if (*etag_value == '"')
+                    etag_value++;
+                char *end_quote = strchr(etag_value, '"');
+                if (end_quote)
+                    *end_quote = '\0';
+                
+                // Compare ETags (without quotes in stored ETag)
+                char stored_etag[128];
+                snprintf(stored_etag, sizeof(stored_etag), "%zu-%ld", 
+                         cached->size, cached->last_access);
+                
+                if (strstr(if_none_match, stored_etag))
+                {
+                    // ETag matches - return 304 Not Modified
+                    char response_304[512];
+                    int header_len = snprintf(response_304, sizeof(response_304),
+                                              "HTTP/1.1 304 Not Modified\\r\\n"
+                                              "ETag: %s\\r\\n"
+                                              "Cache-Control: public, max-age=86400, immutable\\r\\n"
+                                              "Keep-Alive: timeout=5, max=100\\r\\n"
+                                              "Connection: Keep-Alive\\r\\n"
+                                              "\\r\\n",
+                                              current_etag);
+                    send(client_socket, response_304, header_len, 0);
+                    release_cached_file(cached);
+                    free(mime_type);
+                    free(if_none_match);
+                    if (if_modified_since)
+                        free(if_modified_since);
+                    log_event("Served 304 Not Modified (ETag match)");
+                    goto done_serving;
+                }
+            }
+            
+            free(if_none_match);
+            free(if_modified_since);
+            
             // Check if we should compress
             unsigned char *compressed_data = NULL;
             size_t compressed_size = 0;
@@ -757,12 +821,19 @@ void *handle_http_client(void *arg)
 
             // Serve from cache with optional compression
             char response_header[2048];
+            
+            // Format Last-Modified time (RFC 7231 format)
+            char last_modified[64];
+            struct tm *tm_info = gmtime(&cached->last_access);
+            strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+            
             int header_len = snprintf(response_header, sizeof(response_header),
                                       "HTTP/1.1 200 OK\r\n"
                                       "Content-Length: %zu\r\n"
                                       "Content-Type: %s\r\n"
                                       "Cache-Control: public, max-age=86400, immutable\r\n"
-                                      "ETag: \"%zu-%ld%s\"\r\n"
+                                      "ETag: \"%zu-%ld\"\r\n"
+                                      "Last-Modified: %s\r\n"
                                       "%s"
                                       "%s"
                                       "Keep-Alive: timeout=5, max=100\r\n"
@@ -772,7 +843,7 @@ void *handle_http_client(void *arg)
                                       cached->mime_type,
                                       cached->size,
                                       cached->last_access,
-                                      using_compression ? "-gzip" : "",
+                                      last_modified,
                                       using_compression ? "Content-Encoding: gzip\r\n" : "",
                                       SECURITY_HEADERS);
 
@@ -819,6 +890,10 @@ void *handle_http_client(void *arg)
             const char *not_found_response = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
             send(client_socket, not_found_response, strlen(not_found_response), 0);
             free(mime_type);
+            if (if_none_match)
+                free(if_none_match);
+            if (if_modified_since)
+                free(if_modified_since);
             log_event("File not found, sent 404.");
         }
         else
@@ -832,8 +907,49 @@ void *handle_http_client(void *arg)
                 send(client_socket, internal_server_error, strlen(internal_server_error), 0);
                 close(fd);
                 free(mime_type);
+                if (if_none_match)
+                    free(if_none_match);
+                if (if_modified_since)
+                    free(if_modified_since);
                 goto cleanup;
             }
+
+            // Check If-None-Match for non-cached files
+            char current_etag[128];
+            snprintf(current_etag, sizeof(current_etag), "\"%ld-%ld\"", 
+                     (long)st.st_size, (long)st.st_mtime);
+            
+            if (if_none_match && strstr(if_none_match, current_etag + 1))
+            {
+                // ETag matches - return 304
+                char response_304[512];
+                char last_modified[64];
+                struct tm *tm_info = gmtime(&st.st_mtime);
+                strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+                
+                int header_len = snprintf(response_304, sizeof(response_304),
+                                          "HTTP/1.1 304 Not Modified\r\n"
+                                          "ETag: %s\r\n"
+                                          "Last-Modified: %s\r\n"
+                                          "Cache-Control: public, max-age=86400\r\n"
+                                          "Keep-Alive: timeout=5, max=100\r\n"
+                                          "Connection: Keep-Alive\r\n"
+                                          "\r\n",
+                                          current_etag, last_modified);
+                send(client_socket, response_304, header_len, 0);
+                close(fd);
+                free(mime_type);
+                free(if_none_match);
+                if (if_modified_since)
+                    free(if_modified_since);
+                log_event("Served 304 Not Modified (file ETag match)");
+                goto done_serving;
+            }
+            
+            if (if_none_match)
+                free(if_none_match);
+            if (if_modified_since)
+                free(if_modified_since);
 
             // Cache if eligible
             if (st.st_size > 0 && st.st_size < MAX_MMAP_FILE_SIZE)
@@ -842,18 +958,28 @@ void *handle_http_client(void *arg)
             }
 
             char response_header[2048];
+            
+            // Format Last-Modified time
+            char last_modified[64];
+            struct tm *tm_info = gmtime(&st.st_mtime);
+            strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+            
             int header_len = snprintf(response_header, sizeof(response_header),
                                       "HTTP/1.1 200 OK\r\n"
                                       "Content-Length: %ld\r\n"
                                       "Content-Type: %s\r\n"
                                       "Cache-Control: public, max-age=86400\r\n"
                                       "ETag: \"%ld-%ld\"\r\n"
+                                      "Last-Modified: %s\r\n"
                                       "%s"
+                                      "Keep-Alive: timeout=5, max=100\r\n"
+                                      "Connection: Keep-Alive\r\n"
                                       "\r\n",
                                       (long)st.st_size,
                                       mime_type,
                                       (long)st.st_size,
                                       (long)st.st_mtime,
+                                      last_modified,
                                       SECURITY_HEADERS);
 
             free(mime_type);
@@ -1104,11 +1230,52 @@ void *handle_https_client(void *arg)
     // Get MIME type
     char *mime_type = get_mime_type(filepath);
 
+    // Check for conditional request headers
+    char *if_none_match = extract_header_value(buffer, "If-None-Match");
+    char *if_modified_since = extract_header_value(buffer, "If-Modified-Since");
+
     // Try to get file from cache first
     mmap_cache_entry_t *cached = get_cached_file(filepath);
 
     if (cached)
     {
+        // Generate current ETag
+        char current_etag[128];
+        snprintf(current_etag, sizeof(current_etag), "\"%zu-%ld\"", 
+                 cached->size, cached->last_access);
+        
+        // Check If-None-Match (ETag validation)
+        if (if_none_match)
+        {
+            char stored_etag[128];
+            snprintf(stored_etag, sizeof(stored_etag), "%zu-%ld", 
+                     cached->size, cached->last_access);
+            
+            if (strstr(if_none_match, stored_etag))
+            {
+                // ETag matches - return 304 Not Modified
+                char response_304[512];
+                int header_len = snprintf(response_304, sizeof(response_304),
+                                          "HTTP/1.1 304 Not Modified\\r\\n"
+                                          "ETag: %s\\r\\n"
+                                          "Cache-Control: public, max-age=86400, immutable\\r\\n"
+                                          "Connection: keep-alive\\r\\n"
+                                          "\\r\\n",
+                                          current_etag);
+                SSL_write(ssl, response_304, header_len);
+                release_cached_file(cached);
+                free(mime_type);
+                free(if_none_match);
+                if (if_modified_since)
+                    free(if_modified_since);
+                log_event("Served 304 Not Modified via HTTPS (ETag match)");
+                goto cleanup;
+            }
+        }
+        
+        free(if_none_match);
+        free(if_modified_since);
+        
         // Check if we should compress
         unsigned char *compressed_data = NULL;
         size_t compressed_size = 0;
@@ -1152,12 +1319,19 @@ void *handle_https_client(void *arg)
 
         // Serve from cache with optional compression
         char response_header[2048];
+        
+        // Format Last-Modified time
+        char last_modified[64];
+        struct tm *tm_info = gmtime(&cached->last_access);
+        strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+        
         int header_len = snprintf(response_header, sizeof(response_header),
                                   "HTTP/1.1 200 OK\r\n"
                                   "Content-Length: %zu\r\n"
                                   "Content-Type: %s\r\n"
                                   "Cache-Control: public, max-age=86400, immutable\r\n"
-                                  "ETag: \"%zu-%ld%s\"\r\n"
+                                  "ETag: \"%zu-%ld\"\r\n"
+                                  "Last-Modified: %s\r\n"
                                   "%s"
                                   "%s"
                                   "Keep-Alive: timeout=5, max=100\r\n"
@@ -1167,7 +1341,7 @@ void *handle_https_client(void *arg)
                                   cached->mime_type,
                                   cached->size,
                                   cached->last_access,
-                                  using_compression ? "-gzip" : "",
+                                  last_modified,
                                   using_compression ? "Content-Encoding: gzip\r\n" : "",
                                   SECURITY_HEADERS);
 
@@ -1203,6 +1377,10 @@ void *handle_https_client(void *arg)
         const char *not_found_response = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
         SSL_write(ssl, not_found_response, strlen(not_found_response));
         free(mime_type);
+        if (if_none_match)
+            free(if_none_match);
+        if (if_modified_since)
+            free(if_modified_since);
         goto cleanup;
     }
 
@@ -1215,8 +1393,48 @@ void *handle_https_client(void *arg)
         SSL_write(ssl, internal_server_error, strlen(internal_server_error));
         close(fd);
         free(mime_type);
+        if (if_none_match)
+            free(if_none_match);
+        if (if_modified_since)
+            free(if_modified_since);
         goto cleanup;
     }
+
+    // Check If-None-Match for non-cached files
+    char current_etag[128];
+    snprintf(current_etag, sizeof(current_etag), "\"%ld-%ld\"", 
+             (long)st.st_size, (long)st.st_mtime);
+    
+    if (if_none_match && strstr(if_none_match, current_etag + 1))
+    {
+        // ETag matches - return 304
+        char response_304[512];
+        char last_modified[64];
+        struct tm *tm_info = gmtime(&st.st_mtime);
+        strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+        
+        int header_len = snprintf(response_304, sizeof(response_304),
+                                  "HTTP/1.1 304 Not Modified\r\n"
+                                  "ETag: %s\r\n"
+                                  "Last-Modified: %s\r\n"
+                                  "Cache-Control: public, max-age=86400\r\n"
+                                  "Connection: keep-alive\r\n"
+                                  "\r\n",
+                                  current_etag, last_modified);
+        SSL_write(ssl, response_304, header_len);
+        close(fd);
+        free(mime_type);
+        free(if_none_match);
+        if (if_modified_since)
+            free(if_modified_since);
+        log_event("Served 304 Not Modified via HTTPS (file ETag match)");
+        goto cleanup;
+    }
+    
+    if (if_none_match)
+        free(if_none_match);
+    if (if_modified_since)
+        free(if_modified_since);
 
     // Cache file if it's small enough
     if (st.st_size > 0 && st.st_size < MAX_MMAP_FILE_SIZE)
@@ -1225,18 +1443,28 @@ void *handle_https_client(void *arg)
     }
 
     char response_header[2048];
+    
+    // Format Last-Modified time
+    char last_modified[64];
+    struct tm *tm_info = gmtime(&st.st_mtime);
+    strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+    
     int header_len = snprintf(response_header, sizeof(response_header),
                               "HTTP/1.1 200 OK\r\n"
                               "Content-Length: %ld\r\n"
                               "Content-Type: %s\r\n"
                               "Cache-Control: public, max-age=86400\r\n"
                               "ETag: \"%ld-%ld\"\r\n"
+                              "Last-Modified: %s\r\n"
                               "%s"
+                              "Keep-Alive: timeout=5, max=100\r\n"
+                              "Connection: Keep-Alive\r\n"
                               "\r\n",
                               (long)st.st_size,
                               mime_type,
                               (long)st.st_size,
                               (long)st.st_mtime,
+                              last_modified,
                               SECURITY_HEADERS);
 
     free(mime_type);
@@ -1626,6 +1854,14 @@ int main()
 
     config.running = 1;
 
+    // Calculate dynamic rate limit based on system resources
+    MAX_REQUESTS_DYNAMIC = calculate_dynamic_rate_limit();
+    
+    char rate_limit_msg[256];
+    snprintf(rate_limit_msg, sizeof(rate_limit_msg), 
+             "Dynamic rate limit set to %d requests per IP per minute", MAX_REQUESTS_DYNAMIC);
+    log_event(rate_limit_msg);
+
     // Allocate client threads array
     client_threads = calloc(config.max_connections, sizeof(pthread_t));
     if (!client_threads)
@@ -1988,7 +2224,7 @@ int check_rate_limit(const char *ip)
                 rate_limits[i].window_start = now;
                 rate_limits[i].request_count = 1;
             }
-            else if (rate_limits[i].request_count >= MAX_REQUESTS)
+            else if (rate_limits[i].request_count >= MAX_REQUESTS_DYNAMIC)
             {
                 pthread_mutex_unlock(&rate_limit_mutex);
                 return 0; // Rate limit exceeded
@@ -2066,6 +2302,84 @@ void cleanup_thread_pool()
     
     // Free after releasing lock and nullifying pointer
     free(temp);
+}
+
+// Extract header value from HTTP request
+char *extract_header_value(const char *request, const char *header_name)
+{
+    char *header_start = stristr(request, header_name);
+    if (!header_start)
+        return NULL;
+    
+    header_start += strlen(header_name);
+    while (*header_start == ' ' || *header_start == ':')
+        header_start++;
+    
+    char *header_end = strstr(header_start, "\r\n");
+    if (!header_end)
+        return NULL;
+    
+    size_t value_len = header_end - header_start;
+    if (value_len == 0 || value_len > 512)
+        return NULL;
+    
+    char *value = malloc(value_len + 1);
+    if (!value)
+        return NULL;
+    
+    memcpy(value, header_start, value_len);
+    value[value_len] = '\0';
+    
+    // Trim trailing whitespace
+    while (value_len > 0 && (value[value_len - 1] == ' ' || value[value_len - 1] == '\t'))
+    {
+        value[--value_len] = '\0';
+    }
+    
+    return value;
+}
+
+// Calculate dynamic rate limit based on system resources
+int calculate_dynamic_rate_limit(void)
+{
+    // Base calculation on available resources
+    int cpu_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    if (cpu_cores <= 0)
+        cpu_cores = 4;
+    
+    // Get available memory
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page_size = sysconf(_SC_PAGE_SIZE);
+    long ram_mb = (pages * page_size) / (1024 * 1024);
+    
+    // Formula: base_rate * (cpu_factor + ram_factor) * connection_factor
+    // This allows more requests on powerful systems
+    int base_rate = 100; // Base requests per IP per minute
+    
+    // CPU factor: 1.0 to 4.0 (1-16+ cores)
+    double cpu_factor = 1.0 + (cpu_cores / 4.0);
+    if (cpu_factor > 4.0)
+        cpu_factor = 4.0;
+    
+    // RAM factor: 1.0 to 3.0 (1GB to 16GB+)
+    double ram_factor = 1.0 + ((ram_mb / 4096.0) * 2.0);
+    if (ram_factor > 3.0)
+        ram_factor = 3.0;
+    
+    // Connection capacity factor based on max_connections
+    double conn_factor = 1.0 + (config.max_connections / 2048.0);
+    if (conn_factor > 2.0)
+        conn_factor = 2.0;
+    
+    int dynamic_limit = (int)(base_rate * cpu_factor * ram_factor * conn_factor);
+    
+    // Ensure reasonable bounds
+    if (dynamic_limit < 200)
+        dynamic_limit = 200;
+    if (dynamic_limit > 10000)
+        dynamic_limit = 10000;
+    
+    return dynamic_limit;
 }
 
 void cache_file(const char *path, const char *data, size_t size, const char *mime_type)
