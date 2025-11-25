@@ -53,10 +53,15 @@ Carbon is a modern, production-ready HTTP/HTTPS server implementation in C, desi
 ### 🚀 High Performance
 - **Asynchronous I/O**: Epoll-based event handling for maximum efficiency
 - **Thread Pool**: Efficient connection handling with configurable worker threads
-- **Smart Caching**: File caching system to reduce disk I/O
+- **Memory-Mapped Files**: mmap-based file caching for frequently accessed files (up to 10MB)
+- **Buffer Pooling**: Reusable buffer pool to reduce memory allocations
+- **Smart Caching**: Multi-level file caching system to reduce disk I/O
 - **SendFile Optimization**: Zero-copy file transfers for better throughput
+- **Gzip Compression**: Dynamic compression for text-based content
 - **Keep-Alive Support**: Persistent connections to reduce overhead
-- **TCP Optimization**: Fine-tuned NODELAY and buffer configurations
+- **TCP Optimization**: Fine-tuned NODELAY, TCP_QUICKACK, and buffer configurations
+- **CPU Affinity**: Thread-to-core pinning for better cache utilization
+- **Dynamic Rate Limiting**: CPU-based adaptive rate limiting
 
 ### 🔒 High Security
 - **SSL/TLS Support**: Full HTTPS support with modern cipher suites
@@ -130,17 +135,49 @@ make              # Standard build
 make debug        # Debug build with symbols
 make release      # Optimized release build
 make clean        # Clean build artifacts
+make install-deps # Install all dependencies
 ```
+
+### Using Docker
+
+Carbon includes full Docker support for easy deployment:
+
+```bash
+# Using Docker Compose (recommended)
+docker-compose up -d
+
+# Or build and run manually
+docker build -t carbon-server .
+docker run -d -p 8080:8080 -p 8443:8443 \
+  -e PORT=8080 \
+  -e USE_HTTPS=false \
+  -e ENABLE_HTTP2=false \
+  -e ENABLE_WEBSOCKET=false \
+  carbon-server
+
+# Using the official image
+docker pull azreyo/carbon:latest
+docker run -d -p 8080:8080 azreyo/carbon:latest
+```
+
+**Docker Environment Variables:**
+- `SERVER_NAME`: Server domain/IP (default: 0.0.0.0)
+- `PORT`: Server port (default: 8080)
+- `USE_HTTPS`: Enable HTTPS (default: false)
+- `ENABLE_HTTP2`: Enable HTTP/2 (default: false)
+- `ENABLE_WEBSOCKET`: Enable WebSocket (default: false)
+- `MAX_THREADS`: Worker threads (default: 4)
+- `VERBOSE`: Verbose logging (default: true)
 
 ### Manual Compilation
 
 If you prefer manual compilation:
 
 ```bash
-gcc src/server.c src/config_parser.c src/server_config.c src/websocket.c src/http2.c -o server \
+gcc src/server.c src/config_parser.c src/server_config.c src/websocket.c src/http2.c src/performance.c -o server \
     -D_GNU_SOURCE \
     -Wall -Wextra -O2 \
-    -lssl -lcrypto -lpthread -lmagic -lnghttp2
+    -lssl -lcrypto -lpthread -lmagic -lnghttp2 -lz
 ```
 
 ## ⚙️ Configuration
@@ -151,7 +188,7 @@ gcc src/server.c src/config_parser.c src/server_config.c src/websocket.c src/htt
 
 ```bash
 # Create certificates directory
-mkdir -p ssl ssl/certs ssl/key
+mkdir -p ssl/cert ssl/key
 
 # Generate self-signed certificate (for testing only)
 openssl req -x509 -newkey rsa:2048 \
@@ -169,46 +206,53 @@ Create or edit `server.conf` in the project root. Carbon uses a traditional Linu
 # Carbon Web Server Configuration File
 # Lines starting with # are comments
 
-# Server listening port
-port = 443
-
-# Enable HTTPS (requires valid certificates in certs/ directory)
-use_https = true
-
-# Log file location
-log_file = log/server.log
-
-# Maximum number of worker threads
-max_threads = 4
-
 # Server running state
 running = true
 
-# Server name or IP address (used for logging and response headers)
-server_name = 10.0.0.206
-
-# Enable verbose logging
-verbose = true
-
+# ---Network configuration---
+# Server listening port
+port = 8080
+# Enable HTTPS (requires valid certificates in certs/ directory)
+use_https = false
 # Enable HTTP/2 support (requires HTTPS)
-enable_http2 = true
-
+enable_http2 = false
 # Enable WebSocket support
 enable_websocket = false
+# Server name or IP address (used for logging and response headers)
+server_name = Your_domain/IP
+
+# ---Performance configuration---
+# Maximum number of worker threads
+max_threads = 4
+max_connections = 1024
+
+# ---Path configuration---
+# Log file location
+log_file = log/server.log
+# Enable verbose logging
+verbose = true
+# Path to www directory
+www_path = www
+# Path to public ssl certificate
+ssl_cert_path = ssl/cert/cert.pem
+# Path to private ssl key
+ssl_key_path = ssl/key/key.key
 ```
 
 **Configuration Options:**
-- `port`: HTTP port (default: 8080)
+- `running`: Server running state (default: true)
+- `port`: HTTP/HTTPS port (default: 8080)
 - `use_https`: Enable HTTPS - accepts: true/false, yes/no, on/off, 1/0 (requires SSL certificates)
-- `https_port`: HTTPS port (default: 443)
-- `enable_http2`: Enable HTTP/2 support (requires HTTPS and ALPN)
-- `enable_websocket`: Enable WebSocket support (default: true)
-- `log_file`: Path to log file
-- `max_threads`: Number of worker threads
+- `enable_http2`: Enable HTTP/2 support (requires HTTPS and ALPN, default: false)
+- `enable_websocket`: Enable WebSocket support (default: false)
 - `server_name`: Your domain or IP address
+- `max_threads`: Number of worker threads (default: 4)
+- `max_connections`: Maximum concurrent connections (default: 1024)
+- `log_file`: Path to log file (default: log/server.log)
 - `verbose`: Enable detailed logging - accepts: true/false, yes/no, on/off, 1/0
-- `ssl_cert_path`: Path to ssl certificate
-- `ssl_key_path`: Path to ssl key
+- `www_path`: Path to web root directory (default: www)
+- `ssl_cert_path`: Path to SSL certificate file (default: ssl/cert/cert.pem)
+- `ssl_key_path`: Path to SSL private key file (default: ssl/key/key.key)
 
 **Note:** Boolean values are flexible and accept multiple formats:
 - True: `true`, `yes`, `on`, `1`
@@ -410,14 +454,23 @@ Carbon/
 │   ├── websocket.c       # WebSocket implementation
 │   ├── websocket.h       # WebSocket headers
 │   ├── http2.c           # HTTP/2 implementation
-│   └── http2.h           # HTTP/2 headers
+│   ├── http2.h           # HTTP/2 headers
+│   ├── performance.c     # Performance optimizations
+│   ├── performance.h     # Performance headers
+│   └── bin/              # Compiled object files
 ├── Makefile              # Build configuration
+├── Dockerfile            # Docker container configuration
+├── docker-compose.yml    # Docker Compose configuration
+├── docker-push.sh        # Docker image push script
 ├── server.conf           # Server configuration file (Linux-style)
 ├── README.md             # This file
+├── DOCUMENTATION.md      # Comprehensive documentation
 ├── LICENSE               # MIT License
-├── certs/                # SSL certificates (create this)
-│   ├── cert.pem
-│   └── key.pem
+├── ssl/                  # SSL certificates directory (create this)
+│   ├── cert/
+│   │   └── cert.pem      # SSL certificate
+│   └── key/
+│       └── key.key       # SSL private key
 ├── www/                  # Web root directory
 │   ├── index.html
 │   └── websocket-test.html  # WebSocket test client
@@ -432,14 +485,18 @@ Carbon/
 | HTTP/2 Support | High | ✅ Implemented |
 | WebSocket Support | High | ✅ Implemented |
 | Secure WebSocket (wss://) | High | ✅ Implemented |
-| API Rate Limiting | High | ⚠️ Broken (WIP) |
+| API Rate Limiting | High | ✅ Implemented |
 | Security Headers | High | ✅ Implemented |
 | Memory Leak Prevention | High | ✅ Implemented |
+| Performance Optimizations | High | ✅ Implemented |
+| File Caching (mmap) | High | ✅ Implemented |
+| Buffer Pooling | High | ✅ Implemented |
+| Docker Support | Medium | ✅ Implemented |
+| Gzip Compression | Medium | ✅ Implemented |
 | User Authentication | High | 📋 Planned |
 | Reverse Proxy Mode | Medium | 📋 Planned |
 | Load Balancing | Low | 📋 Planned |
-| Docker Support | Medium | 📋 Planned |
-| Comprehensive API Docs | Medium | � In Progress |
+| Comprehensive API Docs | Medium | 🔄 In Progress |
 
 ## 🤝 Contributing
 

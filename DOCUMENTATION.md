@@ -1,7 +1,7 @@
 # Carbon HTTP Server - Complete Documentation
-> ⚠️ Warning some features are not implemented yet in the documentation and can be broken. Work in progress
 
-> ⚒️ Features that are WIP will be marked.
+> **Note**: This documentation reflects the current implementation. Carbon is actively developed and continuously improved.
+
 ## Table of Contents
 
 1. [Introduction](#introduction)
@@ -26,10 +26,12 @@ Carbon is a high-performance HTTP/HTTPS server written in C for Linux systems. I
 
 - **HTTP/2 Protocol**: Full implementation with ALPN negotiation, multiplexing, and HPACK compression
 - **WebSocket Support**: RFC 6455 compliant with secure WebSocket (wss://) support
-- **SSL/TLS Encryption**: OpenSSL integration with modern cipher suites
+- **SSL/TLS Encryption**: OpenSSL integration with modern cipher suites and ALPN
 - **Asynchronous I/O**: Epoll-based event handling for high concurrency
-- **Thread Pooling**: Efficient multi-threaded request handling
-- **Security**: Rate limiting, security headers, input sanitization, memory safety
+- **Thread Pooling**: Efficient multi-threaded request handling with task queue
+- **Performance Optimizations**: mmap caching, buffer pooling, zero-copy transfers, gzip compression
+- **Security**: Dynamic rate limiting, security headers, input sanitization, memory safety
+- **Docker Support**: Full containerization with Docker and Docker Compose
 
 ### System Requirements
 
@@ -39,7 +41,9 @@ Carbon is a high-performance HTTP/HTTPS server written in C for Linux systems. I
   - OpenSSL 1.1.0+ (libssl-dev)
   - libmagic (libmagic-dev)
   - nghttp2 1.0.0+ (libnghttp2-dev)
+  - zlib (zlib1g-dev)
   - pthread (usually included)
+  - pkg-config
 
 ---
 
@@ -62,11 +66,17 @@ Carbon is a high-performance HTTP/HTTPS server written in C for Linux systems. I
 │  ├─── WebSocket Handler                                     │
 │  └─── SSL/TLS Handler (OpenSSL)                             │
 ├─────────────────────────────────────────────────────────────┤
+│  Performance Layer                                          │
+│  ├─── Task Queue (Lock-free)                                │
+│  ├─── Buffer Pool                                           │
+│  ├─── Memory-Mapped File Cache                              │
+│  └─── CPU Affinity Manager                                  │
+├─────────────────────────────────────────────────────────────┤
 │  Core Services                                              │
 │  ├─── Configuration Manager                                │
 │  ├─── Logging System                                        │
-│  ├─── Rate Limiter                                          │
-│  ├─── File Cache                                            │
+│  ├─── Dynamic Rate Limiter                                  │
+│  ├─── Gzip Compression                                      │
 │  └─── MIME Type Detection                                   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -92,11 +102,18 @@ Carbon/
 │   ├── http2.c            # HTTP/2 implementation
 │   ├── http2.h            # HTTP/2 headers
 │   ├── websocket.c        # WebSocket implementation
-│   └── websocket.h        # WebSocket headers
+│   ├── websocket.h        # WebSocket headers
+│   ├── performance.c      # Performance optimizations
+│   ├── performance.h      # Performance headers
+│   └── bin/               # Compiled object files
 ├── www/                   # Web root directory
-├── certs/                 # SSL certificates
+├── ssl/                   # SSL certificates
+│   ├── cert/              # Certificate directory
+│   └── key/               # Private key directory
 ├── log/                   # Log files
 ├── Makefile              # Build configuration
+├── Dockerfile            # Docker configuration
+├── docker-compose.yml    # Docker Compose file
 └── server.conf           # Server configuration
 ```
 
@@ -109,7 +126,7 @@ Carbon/
 ```bash
 # Install dependencies
 sudo apt-get update
-sudo apt-get install -y build-essential libssl-dev libmagic-dev libnghttp2-dev
+sudo apt-get install -y build-essential libssl-dev libmagic-dev libnghttp2-dev zlib1g-dev pkg-config
 
 # Clone and build
 git clone https://github.com/Azreyo/Carbon.git
@@ -117,24 +134,96 @@ cd Carbon
 make
 
 # Setup directories
-mkdir -p certs log www
+mkdir -p ssl/cert ssl/key log www
 
 # Generate test certificates
 openssl req -x509 -nodes -days 365 -newkey rsa:4096 \
-  -keyout certs/key.pem -out certs/cert.pem \
+  -keyout ssl/key/key.key -out ssl/cert/cert.pem \
   -subj "/C=US/ST=State/L=City/O=Carbon/CN=localhost"
 
 # Run server
-sudo ./server
+./server
 ```
 
 ### Build Options
 
 ```bash
-make           # Standard build (-O2 optimization)
-make debug     # Debug build with symbols (-g -O0)
-make release   # Release build with optimizations (-O3)
-make clean     # Remove build artifacts
+make              # Standard build (-O2 optimization)
+make debug        # Debug build with symbols (-g -O0)
+make release      # Release build with optimizations (-O3)
+make clean        # Remove build artifacts
+make install-deps # Install all dependencies
+```
+
+### Docker Deployment
+
+Carbon includes full Docker support for containerized deployment:
+
+#### Using Docker Compose (Recommended)
+
+```bash
+# Start the server
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the server
+docker-compose down
+```
+
+#### Manual Docker Build
+
+```bash
+# Build the image
+docker build -t carbon-server .
+
+# Run the container
+docker run -d \
+  --name carbon \
+  -p 8080:8080 \
+  -p 8443:8443 \
+  -e PORT=8080 \
+  -e USE_HTTPS=false \
+  -e ENABLE_HTTP2=false \
+  -e ENABLE_WEBSOCKET=false \
+  -e MAX_THREADS=4 \
+  carbon-server
+```
+
+#### Using Pre-built Image
+
+```bash
+# Pull from Docker Hub
+docker pull azreyo/carbon:latest
+
+# Run the container
+docker run -d -p 8080:8080 azreyo/carbon:latest
+```
+
+#### Docker Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERVER_NAME` | 0.0.0.0 | Server hostname or IP |
+| `PORT` | 8080 | Server port |
+| `USE_HTTPS` | false | Enable HTTPS |
+| `ENABLE_HTTP2` | false | Enable HTTP/2 |
+| `ENABLE_WEBSOCKET` | false | Enable WebSocket |
+| `MAX_THREADS` | 4 | Worker threads |
+| `VERBOSE` | true | Verbose logging |
+
+#### Docker Volumes
+
+Mount volumes for persistent data:
+
+```bash
+docker run -d \
+  -v /path/to/www:/app/www \
+  -v /path/to/ssl:/app/ssl \
+  -v /path/to/logs:/app/log \
+  -p 8080:8080 \
+  azreyo/carbon:latest
 ```
 
 ### Production Setup
@@ -170,44 +259,39 @@ Carbon uses a Linux-style configuration file (`server.conf`) with `key = value` 
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `port` | integer | 8080 | HTTP port to listen on |
-| `https_port` | integer | 443 | HTTPS port to listen on |
+| `port` | integer | 8080 | HTTP/HTTPS port to listen on |
 | `use_https` | boolean | false | Enable HTTPS |
-| `server_name` | string | localhost | Server hostname or IP |
+| `server_name` | string | 127.0.0.1 | Server hostname or IP |
 
 #### Protocol Settings
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enable_http2` | boolean | true | Enable HTTP/2 (requires HTTPS) |
-| `enable_websocket` | boolean | true | Enable WebSocket support |
+| `enable_http2` | boolean | false | Enable HTTP/2 (requires HTTPS) |
+| `enable_websocket` | boolean | false | Enable WebSocket support |
 
 #### Performance Settings
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `max_threads` | integer | 4 | Number of worker threads |
-| `keep_alive_timeout` | integer | 60 | Keep-alive timeout in seconds |
-| `max_connections` | integer | 1000 | Maximum concurrent connections |
+| `max_connections` | integer | 1024 | Maximum concurrent connections |
+
+#### Path Settings
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `www_path` | string | www | Web root directory |
+| `ssl_cert_path` | string | ssl/cert/cert.pem | Path to SSL certificate |
+| `ssl_key_path` | string | ssl/key/key.key | Path to SSL private key |
 
 #### Logging Settings
-
-> ⚠️ Work in progress
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `log_file` | string | log/server.log | Path to log file |
 | `verbose` | boolean | false | Enable verbose logging |
-
-#### Security Settings
-
-> ⚠️ Work in progress
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `rate_limit` | integer | 100 | Requests per IP per minute |
-| `enable_hsts` | boolean | true | Enable HSTS header |
-| `enable_csp` | boolean | true | Enable CSP header |
+| `running` | boolean | true | Server running state |
 
 ### Boolean Value Formats
 
@@ -220,31 +304,40 @@ Values can be quoted with single or double quotes.
 ### Example Configuration
 
 ```conf
-# Carbon Web Server Configuration
+# Carbon Web Server Configuration File
+# Lines starting with # are comments
 
-# Network
+# Server running state
+running = true
+
+# ---Network configuration---
+# Server listening port
 port = 8080
-https_port = 443
-use_https = true
-server_name = example.com
+# Enable HTTPS (requires valid certificates)
+use_https = false
+# Enable HTTP/2 support (requires HTTPS)
+enable_http2 = false
+# Enable WebSocket support
+enable_websocket = false
+# Server name or IP address
+server_name = Your_domain/IP
 
-# Protocols
-enable_http2 = true
-enable_websocket = true
+# ---Performance configuration---
+# Maximum number of worker threads
+max_threads = 4
+max_connections = 1024
 
-# Performance
-max_threads = 8
-keep_alive_timeout = 60
-max_connections = 2000
-
-# Logging
-log_file = /var/log/carbon/server.log
-verbose = false
-
-# Security
-rate_limit = 100
-enable_hsts = true
-enable_csp = true
+# ---Path configuration---
+# Log file location
+log_file = log/server.log
+# Enable verbose logging
+verbose = true
+# Path to www directory
+www_path = www
+# Path to public SSL certificate
+ssl_cert_path = ssl/cert/cert.pem
+# Path to private SSL key
+ssl_key_path = ssl/key/key.key
 ```
 
 ---
@@ -584,27 +677,28 @@ Carbon uses OpenSSL for SSL/TLS encryption:
 - **Protocol Support**: TLS 1.2 and TLS 1.3
 - **Cipher Suites**: Modern, secure ciphers only
 - **Perfect Forward Secrecy**: ECDHE key exchange
-- **Certificate Validation**: Proper certificate chain validation
+- **ALPN Support**: Protocol negotiation for HTTP/2
 
 ### Security Headers
 
 Automatically added security headers:
 
 ```
-Content-Security-Policy: default-src 'self'
-Strict-Transport-Security: max-age=31536000; includeSubDomains
 X-Content-Type-Options: nosniff
-X-Frame-Options: DENY
+X-Frame-Options: SAMEORIGIN
 X-XSS-Protection: 1; mode=block
+Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline';
 ```
 
 ### Rate Limiting
 
-Per-IP rate limiting prevents abuse:
+Dynamic per-IP rate limiting prevents abuse:
 
-- **Default**: 100 requests per IP per minute
-- **Configurable**: Adjust via `rate_limit` setting
-- **Automatic Blocking**: Exceeding limit returns 429 Too Many Requests
+- **Default**: 500 requests per IP per minute (CPU-based adaptive)
+- **Algorithm**: Dynamic calculation based on CPU cores
+- **Window**: 60-second rolling window
+- **Response**: HTTP 429 Too Many Requests when exceeded
+- **Memory Efficient**: Per-IP tracking with automatic cleanup
 
 ### Input Sanitization
 
@@ -614,15 +708,20 @@ Protection against common attacks:
 - **Directory Escapes**: Blocks `..` sequences
 - **Null Bytes**: Rejects null bytes in requests
 - **Buffer Overflows**: Bounds checking on all buffers
+- **Header Validation**: Strict HTTP header parsing
+- **URL Encoding**: Proper URL decoding and validation
 
 ### Memory Safety
 
 Memory management practices:
 
-- **Bounds Checking**: All buffer operations checked
-- **Leak Prevention**: Proper resource cleanup
-- **Use-After-Free**: Careful pointer management
-- **Integer Overflow**: Validation of size calculations
+- **Bounds Checking**: All buffer operations validated
+- **Leak Prevention**: Comprehensive resource cleanup
+- **Stack Protection**: -fstack-protector-strong enabled
+- **PIE/ASLR**: Position Independent Executable
+- **RELRO**: Full RELRO for GOT protection
+- **Format String Protection**: -Wformat-security enforcement
+- **Integer Overflow**: Careful size calculations and validation
 
 ### Best Practices
 
@@ -652,8 +751,19 @@ max_threads = 16
 ```conf
 # Increase for high-traffic sites
 max_connections = 10000
-keep_alive_timeout = 120
 ```
+
+### Performance Features
+
+Carbon includes several performance optimizations:
+
+1. **Memory-Mapped File Caching**: Files up to 10MB are cached using mmap for fast access
+2. **Buffer Pooling**: Reusable buffer pool reduces memory allocation overhead
+3. **Zero-Copy Transfers**: Uses `sendfile()` for efficient file serving
+4. **Gzip Compression**: Dynamic compression for text-based content
+5. **CPU Affinity**: Thread-to-core pinning for better cache utilization
+6. **Dynamic Rate Limiting**: CPU-based adaptive rate limiting (default: 500 requests/minute)
+7. **Task Queue**: Lock-free queue design for worker thread distribution
 
 ### System Limits
 
@@ -670,19 +780,18 @@ net.ipv4.tcp_max_syn_backlog = 65536
 net.ipv4.ip_local_port_range = 10000 65535
 ```
 
-### File Caching
+### Performance Constants
 
-Enable file caching for static content:
-- Frequently accessed files cached in memory
-- Reduces disk I/O overhead
-- Automatic cache invalidation
+The following performance constants are defined in the source code:
 
-### Zero-Copy Transfers
-
-Carbon uses `sendfile()` for efficient file transfers:
-- Eliminates user-space copies
-- Reduces CPU usage
-- Improves throughput
+- **SOCKET_SEND_BUFFER_SIZE**: 512KB
+- **SOCKET_RECV_BUFFER_SIZE**: 512KB
+- **SOCKET_BACKLOG**: 256 connections
+- **EPOLL_TIMEOUT**: 50ms for responsive polling
+- **FILE_BUFFER_SIZE**: 64KB for file operations
+- **MAX_MMAP_FILE_SIZE**: 10MB maximum file size for mmap caching
+- **WORKER_QUEUE_SIZE**: 2048 pending connections
+- **RATE_LIMIT_WINDOW**: 60 seconds
 
 ### Benchmarking
 
@@ -809,16 +918,26 @@ git clone https://github.com/Azreyo/Carbon.git
 cd Carbon
 
 # Install development dependencies
-sudo apt-get install -y build-essential libssl-dev libmagic-dev libnghttp2-dev
+sudo apt-get install -y build-essential libssl-dev libmagic-dev libnghttp2-dev zlib1g-dev pkg-config
 
 # Build
 make
 
-# Run tests
-make test
+# Or use specific build type
+make debug    # Debug build with symbols
+make release  # Optimized release build
 ```
 
 ### Code Structure
+
+The Carbon server is organized into modular components:
+
+- **server.c**: Main server logic, epoll event loop, client handling
+- **server_config.c/h**: Configuration structure and defaults
+- **config_parser.c**: Configuration file parsing logic
+- **http2.c/h**: HTTP/2 protocol implementation (nghttp2 wrapper)
+- **websocket.c/h**: WebSocket protocol implementation (RFC 6455)
+- **performance.c/h**: Performance optimizations (mmap cache, buffer pool, task queue)
 
 #### Adding New Features
 
