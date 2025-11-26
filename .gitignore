@@ -58,3 +58,4 @@ ssl/*
 !.github/workflows/
 src/bin
 docker-push.sh
+entrypoint.sh

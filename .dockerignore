@@ -34,3 +34,5 @@ Thumbs.db
 # Test files
 test/
 tests/
+
+docker-push.sh
