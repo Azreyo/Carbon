@@ -1,4 +1,4 @@
-FROM alpine:3.19 AS builder
+FROM alpine:edge AS builder
 
 RUN apk add --no-cache \
     gcc \
@@ -11,14 +11,16 @@ RUN apk add --no-cache \
     nghttp2-dev \
     zlib-dev \
     git \
-    ca-certificates
+    ca-certificates \
+    && apk update \
+    && apk upgrade --available
 
 WORKDIR /build
 
 RUN git clone --depth 1 --branch main https://github.com/Azreyo/Carbon.git . && \
     make clean && make release
 
-FROM alpine:3.19
+FROM alpine:edge
 
 RUN apk add --no-cache \
     libssl3 \
@@ -26,7 +28,9 @@ RUN apk add --no-cache \
     nghttp2-libs \
     zlib \
     ca-certificates \
-    wget \
+    curl \
+    && apk update \
+    && apk upgrade --available \
     && rm -rf /tmp/* /var/cache/apk/*
 
 RUN adduser -D -u 1000 -s /bin/sh carbon
@@ -61,4 +65,4 @@ EXPOSE 8080 8443
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-8080}/ || exit 1
+    CMD curl -f -s http://localhost:${PORT:-8080}/ || exit 1
