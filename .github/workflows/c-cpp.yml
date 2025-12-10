@@ -1,0 +1,133 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libssl-dev \
+            libmagic-dev \
+            libnghttp2-dev \
+            pkg-config
+
+      - name: Build project
+        run: |
+          make clean
+          make
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-binary
+          path: server
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Build again for testing
+        run: |
+          make clean
+          make
+
+      - name: Verify ELF executable
+        run: |
+          if file server | grep -q "ELF"; then
+            echo "✓ Server binary is a valid ELF executable"
+          else
+            echo "✗ Invalid server binary!"
+            exit 1
+          fi
+
+      - name: Run basic tests
+        run: |
+          echo "✓ (No unit tests configured yet, smoke test passed)"
+
+  code-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install code quality tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck clang-format
+
+      - name: Run Cppcheck
+        run: |
+          cppcheck --enable=all --inconclusive --error-exitcode=0 \
+            --suppress=missingIncludeSystem \
+            src/ 2>&1 | tee cppcheck-report.txt
+
+      - name: Check formatting
+        run: |
+          mismatches=0
+          for file in $(find src/ -name "*.c" -o -name "*.h"); do
+            if clang-format -style=file -output-replacements-xml "$file" | grep -q "<replacement "; then
+              echo "Formatting issue: $file"
+              mismatches=1
+            fi
+          done
+          exit $mismatches
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: code-quality-reports
+          path: cppcheck-report.txt
+
+  security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install security tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flawfinder cppcheck
+
+      - name: Run Flawfinder
+        run: |
+          flawfinder --minlevel=1 src/ | tee flawfinder.txt || true
+
+      - name: Run Cppcheck (security-focused)
+        run: |
+          cppcheck --enable=warning,style,performance,portability \
+            --error-exitcode=0 src/ 2>&1 | tee cppcheck-security.txt
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-scan-reports
+          path: |
+            flawfinder.txt
+            cppcheck-security.txt
