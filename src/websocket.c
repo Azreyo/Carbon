@@ -219,6 +219,28 @@ int ws_parse_frame(const uint8_t *data, size_t len, ws_frame_header_t *header, u
 // Create WebSocket frame
 int ws_create_frame(uint8_t *buffer, size_t buffer_size, uint8_t opcode, const uint8_t *payload, size_t payload_len)
 {
+    size_t header_size;
+    
+    // Calculate total frame size first
+    if (payload_len < 126)
+    {
+        header_size = 2;
+    }
+    else if (payload_len < 65536)
+    {
+        header_size = 4;
+    }
+    else
+    {
+        header_size = 10;
+    }
+    
+    // Check buffer size before writing anything
+    if (buffer_size < header_size + payload_len)
+    {
+        return -1;
+    }
+    
     size_t offset = 0;
 
     // First byte: FIN + opcode
@@ -227,22 +249,16 @@ int ws_create_frame(uint8_t *buffer, size_t buffer_size, uint8_t opcode, const u
     // Second byte: MASK + payload length
     if (payload_len < 126)
     {
-        if (buffer_size < offset + 1 + payload_len)
-            return -1;
-        buffer[offset++] = payload_len;
+        buffer[offset++] = (uint8_t)payload_len;
     }
     else if (payload_len < 65536)
     {
-        if (buffer_size < offset + 3 + payload_len)
-            return -1;
         buffer[offset++] = 126;
         buffer[offset++] = (payload_len >> 8) & 0xFF;
         buffer[offset++] = payload_len & 0xFF;
     }
     else
     {
-        if (buffer_size < offset + 9 + payload_len)
-            return -1;
         buffer[offset++] = 127;
         for (int i = 7; i >= 0; i--)
         {
@@ -257,7 +273,7 @@ int ws_create_frame(uint8_t *buffer, size_t buffer_size, uint8_t opcode, const u
         offset += payload_len;
     }
 
-    return offset;
+    return (int)offset;
 }
 
 // Send WebSocket frame

@@ -536,6 +536,12 @@ static void *handle_websocket(void *arg)
         pthread_exit(NULL);
     }
 
+    // Remove socket timeout for WebSocket (connections should stay open)
+    struct timeval ws_timeout;
+    ws_timeout.tv_sec = 0;  // No timeout - wait indefinitely
+    ws_timeout.tv_usec = 0;
+    setsockopt(conn->socket_fd, SOL_SOCKET, SO_RCVTIMEO, &ws_timeout, sizeof(ws_timeout));
+
     log_event("WebSocket connection established");
 
     uint8_t buffer[65536];
@@ -554,9 +560,13 @@ static void *handle_websocket(void *arg)
 
         if (bytes_received <= 0)
         {
-            ws_close_connection(conn, 1000);
-            free(conn);
-            pthread_exit(NULL);
+            if (bytes_received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK))
+            {
+                ws_close_connection(conn, 1000);
+                free(conn);
+                pthread_exit(NULL);
+            }
+            continue;
         }
 
         ws_frame_header_t header;
@@ -578,7 +588,7 @@ static void *handle_websocket(void *arg)
             if (ws_is_valid_utf8(payload, header.payload_length))
             {
                 // Echo back the text message
-                ws_send_text(conn, (const char *)payload);
+                ws_send_frame(conn, WS_OPCODE_TEXT, payload, header.payload_length);
                 log_event("WebSocket text frame received and echoed");
             }
             else
