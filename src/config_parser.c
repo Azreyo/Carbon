@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <stdbool.h>
 #include <ctype.h>
 #include "server_config.h"
@@ -13,7 +14,8 @@ typedef enum
     CONFIG_MAX_THREADS,
     CONFIG_RUNNING,
     CONFIG_SERVER_NAME,
-    CONFIG_VERBOSE,
+    CONFIG_LOG_MODE,
+    CONFIG_VERBOSE,  // Keep for backwards compatibility
     CONFIG_ENABLE_HTTP2,
     CONFIG_ENABLE_WEBSOCKET,
     CONFIG_WWW_PATH,
@@ -57,6 +59,21 @@ static bool parse_bool(const char *value)
     }
     return false;
 }
+// Parse log mode value (off/classic/debug/advanced)
+static LogMode parse_log_mode(const char *value)
+{
+    if (strcasecmp(value, "off") == 0 || strcmp(value, "0") == 0)
+        return LOG_MODE_OFF;
+    if (strcasecmp(value, "classic") == 0 || strcasecmp(value, "true") == 0 ||
+        strcasecmp(value, "yes") == 0 || strcmp(value, "1") == 0)
+        return LOG_MODE_CLASSIC;
+    if (strcasecmp(value, "debug") == 0)
+        return LOG_MODE_DEBUG;
+    if (strcasecmp(value, "advanced") == 0)
+        return LOG_MODE_ADVANCED;
+    return LOG_MODE_CLASSIC;  // Default
+}
+
 // Map string to enum
 static ConfigKey get_config_key(const char *key)
 {
@@ -71,7 +88,8 @@ static ConfigKey get_config_key(const char *key)
         {"max_threads", CONFIG_MAX_THREADS},
         {"running", CONFIG_RUNNING},
         {"server_name", CONFIG_SERVER_NAME},
-        {"verbose", CONFIG_VERBOSE},
+        {"log_mode", CONFIG_LOG_MODE},
+        {"verbose", CONFIG_VERBOSE},  // Keep for backwards compatibility
         {"enable_http2", CONFIG_ENABLE_HTTP2},
         {"enable_websocket", CONFIG_ENABLE_WEBSOCKET},
         {"www_path", CONFIG_WWW_PATH},
@@ -195,9 +213,22 @@ int load_config(const char *filename, ServerConfig *config)
                                 "Please set server_name in server.conf to the server's IP address or domain name for proper operation.\n");
             }
             break;
+        case CONFIG_LOG_MODE:
+            config->log_mode = parse_log_mode(value);
+            printf("load_config: log_mode = %s\n", 
+                   config->log_mode == LOG_MODE_OFF ? "off" :
+                   config->log_mode == LOG_MODE_DEBUG ? "debug" :
+                   config->log_mode == LOG_MODE_ADVANCED ? "advanced" : "classic");
+            break;
         case CONFIG_VERBOSE:
-            config->verbose = parse_bool(value);
-            printf("load_config: verbose = %d\n", config->verbose);
+            // Backwards compatibility: map verbose boolean to log_mode
+            if (parse_bool(value)) {
+                config->log_mode = LOG_MODE_CLASSIC;
+            } else {
+                config->log_mode = LOG_MODE_OFF;
+            }
+            printf("load_config: verbose (legacy) -> log_mode = %s\n",
+                   config->log_mode == LOG_MODE_OFF ? "off" : "classic");
             break;
 
         case CONFIG_ENABLE_HTTP2:

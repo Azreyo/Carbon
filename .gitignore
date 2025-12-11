@@ -59,3 +59,4 @@ ssl/*
 src/bin
 docker-push.sh
 entrypoint.sh
+.idea

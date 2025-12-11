@@ -1,5 +1,6 @@
 #include "http2.h"
 #include "server_config.h"
+#include "logging.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

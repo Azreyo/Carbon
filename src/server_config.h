@@ -3,6 +3,14 @@
 
 #include <stdbool.h>
 
+// Log modes
+typedef enum {
+    LOG_MODE_OFF = 0,
+    LOG_MODE_CLASSIC = 1,
+    LOG_MODE_DEBUG = 2,
+    LOG_MODE_ADVANCED = 3
+} LogMode;
+
 typedef struct
 {
     int port;
@@ -12,7 +20,7 @@ typedef struct
     bool running;
     bool automatic_startup;
     char server_name[256];
-    int verbose;
+    LogMode log_mode;           // Replaces verbose - supports off/classic/debug/advanced
     bool enable_http2;
     bool enable_websocket;
     char www_path[256];

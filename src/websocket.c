@@ -4,13 +4,13 @@
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <openssl/sha.h>
-#include <openssl/bio.h>
 #include <openssl/evp.h>
+#include <openssl/bio.h>
 #include <openssl/buffer.h>
 #include <arpa/inet.h>
 
 #define WS_GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+#define SHA1_DIGEST_LENGTH 20
 
 // Base64 encode function
 static char *base64_encode(const unsigned char *input, int length)
@@ -27,6 +27,10 @@ static char *base64_encode(const unsigned char *input, int length)
     BIO_get_mem_ptr(b64, &bptr);
 
     char *buff = (char *)malloc(bptr->length + 1);
+    if (!buff) {
+        BIO_free_all(b64);
+        return NULL;
+    }
     memcpy(buff, bptr->data, bptr->length);
     buff[bptr->length] = '\0';
 
@@ -38,6 +42,10 @@ static char *base64_encode(const unsigned char *input, int length)
 // Generate WebSocket accept key from client key
 char *ws_generate_accept_key(const char *client_key)
 {
+    if (!client_key || strlen(client_key) > 128) {
+        return NULL;  // Security: validate input length
+    }
+    
     char combined[256];
     int written = snprintf(combined, sizeof(combined), "%s%s", client_key, WS_GUID);
     
@@ -46,10 +54,23 @@ char *ws_generate_accept_key(const char *client_key)
         return NULL;
     }
 
-    unsigned char hash[SHA_DIGEST_LENGTH];
-    SHA1((unsigned char *)combined, strlen(combined), hash);
+    unsigned char hash[SHA1_DIGEST_LENGTH];
+    unsigned int hash_len = 0;
+    
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    if (!ctx) {
+        return NULL;
+    }
+    
+    if (EVP_DigestInit_ex(ctx, EVP_sha1(), NULL) != 1 ||
+        EVP_DigestUpdate(ctx, combined, strlen(combined)) != 1 ||
+        EVP_DigestFinal_ex(ctx, hash, &hash_len) != 1) {
+        EVP_MD_CTX_free(ctx);
+        return NULL;
+    }
+    EVP_MD_CTX_free(ctx);
 
-    return base64_encode(hash, SHA_DIGEST_LENGTH);
+    return base64_encode(hash, (int)hash_len);
 }
 
 // Handle WebSocket handshake

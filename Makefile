@@ -16,13 +16,13 @@ LDFLAGS = -pthread -Wl,-z,relro,-z,now -pie
 LIBS = -lssl -lcrypto -lmagic -lnghttp2 -lz
 
 # Source files and object files
-SRCS = src/server.c src/config_parser.c src/server_config.c src/websocket.c src/http2.c src/performance.c
+SRCS = src/server.c src/config_parser.c src/server_config.c src/websocket.c src/http2.c src/performance.c src/logging.c
 DEST = src/bin/
 OBJS = $(patsubst src/%.c,$(DEST)%.o,$(SRCS))
 TARGET = server
 
 # Header files
-HEADERS = src/server_config.h src/websocket.h src/http2.h src/performance.h
+HEADERS = src/server_config.h src/websocket.h src/http2.h src/performance.h src/logging.h
 
 # Include directories
 INCLUDES =

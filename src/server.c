@@ -29,6 +29,7 @@
 #include "websocket.h"
 #include "http2.h"
 #include "performance.h"
+#include "logging.h"
 
 #define MAX_REQUEST_SIZE 16384
 #define MAX_LOG_SIZE 2048
@@ -54,10 +55,14 @@
 
 #define SECURITY_HEADERS                                                                                           \
     "X-Content-Type-Options: nosniff\r\n"                                                                          \
-    "X-Frame-Options: SAMEORIGIN\r\n"                                                                              \
+    "X-Frame-Options: DENY\r\n"                                                                                    \
     "X-XSS-Protection: 1; mode=block\r\n"                                                                          \
+    "Referrer-Policy: strict-origin-when-cross-origin\r\n"                                                         \
+    "Permissions-Policy: geolocation=(), microphone=(), camera=()\r\n"                                             \
     "Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " \
-    "font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline';\r\n"
+    "font-src 'self' https://fonts.gstatic.com; script-src 'self'; img-src 'self' data:; "                        \
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self';\r\n"                                            \
+    "Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n"
 
 #define RATE_LIMIT_WINDOW 60 // 60 seconds
 static int MAX_REQUESTS_DYNAMIC = 500; // Will be calculated dynamically
@@ -203,31 +208,72 @@ void configure_ssl_context(SSL_CTX *ctx)
         exit(EXIT_FAILURE);
     }
     
-    // Security hardening
-    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
-    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1);
-    SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION); // Disable compression (CRIME attack)
-    SSL_CTX_set_options(ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+    // Verify private key matches certificate
+    if (SSL_CTX_check_private_key(ctx) != 1)
+    {
+        LOG_ERROR(LOG_CAT_SSL, "Private key does not match certificate");
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
     
-    // Use secure ciphers only - TLS 1.3 and strong TLS 1.2 ciphers
-    const char *cipher_list = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
-                              "TLS_AES_128_GCM_SHA256:"  // TLS 1.3
-                              "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:"
-                              "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:"
-                              "!aNULL:!eNULL:!EXPORT:!DES:!3DES:!RC4:!MD5:!PSK:!CBC";
+    // Security hardening - enforce TLS 1.2 minimum (TLS 1.3 preferred)
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    
+    // Disable all insecure protocols and options
+    SSL_CTX_set_options(ctx, 
+        SSL_OP_NO_SSLv2 |           // Disable SSLv2 (CVE-2016-0800)
+        SSL_OP_NO_SSLv3 |           // Disable SSLv3 (POODLE - CVE-2014-3566)
+        SSL_OP_NO_TLSv1 |           // Disable TLS 1.0 (BEAST - CVE-2011-3389)
+        SSL_OP_NO_TLSv1_1 |         // Disable TLS 1.1 (deprecated)
+        SSL_OP_NO_COMPRESSION |     // Disable compression (CRIME - CVE-2012-4929)
+        SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION |
+        SSL_OP_NO_TICKET |          // Disable session tickets for forward secrecy
+        SSL_OP_CIPHER_SERVER_PREFERENCE |  // Server chooses cipher order
+        SSL_OP_SINGLE_DH_USE |      // Generate new DH key for each handshake
+        SSL_OP_SINGLE_ECDH_USE      // Generate new ECDH key for each handshake
+    );
+    
+    // Use secure ciphers only - TLS 1.3 and strong TLS 1.2 AEAD ciphers
+    // Prioritize ChaCha20 for mobile devices, AES-GCM for servers with AES-NI
+    const char *cipher_list = 
+        "TLS_AES_256_GCM_SHA384:"
+        "TLS_CHACHA20_POLY1305_SHA256:"
+        "TLS_AES_128_GCM_SHA256:"                    // TLS 1.3 ciphers
+        "ECDHE-ECDSA-AES256-GCM-SHA384:"
+        "ECDHE-RSA-AES256-GCM-SHA384:"
+        "ECDHE-ECDSA-CHACHA20-POLY1305:"
+        "ECDHE-RSA-CHACHA20-POLY1305:"
+        "ECDHE-ECDSA-AES128-GCM-SHA256:"
+        "ECDHE-RSA-AES128-GCM-SHA256:"               // TLS 1.2 AEAD ciphers
+        "!aNULL:!eNULL:!EXPORT:!DES:!3DES:!RC4:!MD5:!PSK:!SRP:!DSS:!CBC";
     
     if (SSL_CTX_set_cipher_list(ctx, cipher_list) != 1)
     {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
+    
+    // Set ECDH curve for key exchange (prefer X25519, fall back to P-256)
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+    if (SSL_CTX_set1_groups_list(ctx, "X25519:P-256:P-384") != 1)
+    {
+        LOG_WARN(LOG_CAT_SSL, "Failed to set ECDH groups, using defaults");
+    }
+#endif
+    
+    // Enable OCSP stapling if available
+#ifdef SSL_CTX_set_tlsext_status_type
+    SSL_CTX_set_tlsext_status_type(ctx, TLSEXT_STATUSTYPE_ocsp);
+#endif
 
     // Enable HTTP/2 ALPN if configured
     if (config.enable_http2)
     {
         SSL_CTX_set_alpn_select_cb(ctx, alpn_select_proto_cb, NULL);
-        log_event("HTTP/2 ALPN enabled");
+        LOG_INFO(LOG_CAT_SSL, "HTTP/2 ALPN enabled");
     }
+    
+    LOG_INFO(LOG_CAT_SSL, "SSL/TLS context configured with secure settings");
 }
 
 void optimize_socket_for_send(int socket_fd)
@@ -1847,6 +1893,9 @@ unsigned char *gzip_compress(const unsigned char *data, size_t size, size_t *com
 
 int main()
 {
+    // Initialize default config first
+    init_config(&config);
+    
     if (load_config("server.conf", &config) != 0)
     {
         printf("Using default configuration.\n");
@@ -1854,13 +1903,33 @@ int main()
 
     config.running = 1;
 
+    // Initialize logging system based on config
+    LogConfig log_cfg = {
+        .level = (config.log_mode == LOG_MODE_OFF) ? LOG_LEVEL_OFF :
+                 (config.log_mode == LOG_MODE_DEBUG) ? LOG_LEVEL_DEBUG :
+                 (config.log_mode == LOG_MODE_ADVANCED) ? LOG_LEVEL_TRACE :
+                 LOG_LEVEL_INFO,
+        .categories = LOG_CAT_ALL,
+        .format = LOG_FORMAT_PLAIN,
+        .console_output = true,
+        .file_output = true,
+        .include_timestamp = true,
+        .include_thread_id = true,
+        .include_source_location = (config.log_mode == LOG_MODE_ADVANCED),
+        .colorize_console = true,
+        .max_file_size = 100 * 1024 * 1024,
+        .max_backup_files = 5
+    };
+    strncpy(log_cfg.log_file, config.log_file, sizeof(log_cfg.log_file) - 1);
+    log_init(&log_cfg);
+
     // Calculate dynamic rate limit based on system resources
     MAX_REQUESTS_DYNAMIC = calculate_dynamic_rate_limit();
     
     char rate_limit_msg[256];
     snprintf(rate_limit_msg, sizeof(rate_limit_msg), 
              "Dynamic rate limit set to %d requests per IP per minute", MAX_REQUESTS_DYNAMIC);
-    log_event(rate_limit_msg);
+    LOG_INFO(LOG_CAT_GENERAL, "%s", rate_limit_msg);
 
     // Allocate client threads array
     client_threads = calloc(config.max_connections, sizeof(pthread_t));
@@ -1929,84 +1998,6 @@ int main()
     return 0;
 }
 
-void log_event(const char *message)
-{
-    pthread_mutex_lock(&log_mutex);
-
-    time_t t = time(NULL);
-    struct tm tm = *localtime(&t);
-    char timestamp[64];
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &tm);
-
-    // Create log directory if it doesn't exist
-    char log_dir[512];
-    strncpy(log_dir, config.log_file, sizeof(log_dir) - 1);
-    log_dir[sizeof(log_dir) - 1] = '\0';
-    char *dir_path = dirname(log_dir);
-
-    struct stat st;
-    if (stat(dir_path, &st) != 0)
-    {
-        if (mkdir(dir_path, 0755) != 0)
-        {
-            fprintf(stderr, "Error creating log directory (%s): %s\n", dir_path, strerror(errno));
-            pthread_mutex_unlock(&log_mutex);
-            return;
-        }
-    }
-    else if (!S_ISDIR(st.st_mode))
-    {
-        fprintf(stderr, "Log path (%s) exists but is not a directory\n", dir_path);
-        pthread_mutex_unlock(&log_mutex);
-        return;
-    }
-
-    // Check log file size and rotate if necessary
-    if (stat(config.log_file, &st) == 0)
-    {
-        if (st.st_size > MAX_LOG_FILE_SIZE)
-        {
-            char backup_log[512];
-            snprintf(backup_log, sizeof(backup_log), "%s.old", config.log_file);
-            rename(config.log_file, backup_log);
-        }
-    }
-
-    FILE *logfile = fopen(config.log_file, "a");
-    if (!logfile)
-    {
-        fprintf(stderr, "Error opening log file (%s): %s\n", config.log_file, strerror(errno));
-        pthread_mutex_unlock(&log_mutex);
-        return;
-    }
-
-    // Format log entry with timestamp, process ID, and thread ID
-    char log_entry[LOG_BUFFER_SIZE];
-    snprintf(log_entry, sizeof(log_entry), "[%s] [PID:%d] [TID:%lu] %s\n",
-             timestamp,
-             getpid(),
-             pthread_self(),
-             message);
-
-    // Write to log file
-    if (fputs(log_entry, logfile) == EOF)
-    {
-        fprintf(stderr, "Error writing to log file: %s\n", strerror(errno));
-    }
-
-    // Ensure log is written immediately
-    fflush(logfile);
-    fclose(logfile);
-
-    // Also print to stdout for debugging if verbose mode is enabled
-    if (config.verbose)
-    {
-        printf("%s", log_entry);
-        fflush(stdout);
-    }
-
-    pthread_mutex_unlock(&log_mutex);
-}
 
 char *get_mime_type(const char *filepath)
 {

@@ -2,7 +2,10 @@ version: '3.8'
 
 services:
   carbon-server:
-    image: azreyo/carbon:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: carbon:latest
     container_name: carbon-http-server
     ports:
       - "8080:8080"
@@ -14,9 +17,34 @@ services:
       - ENABLE_HTTP2=false
       - ENABLE_WEBSOCKET=false
       - MAX_THREADS=4
-      - VERBOSE=true
+      - MAX_CONNECTIONS=1024
+      - LOG_MODE=classic
+    volumes:
+      - ./www:/app/www:ro
+      - carbon-logs:/app/log
+      # For HTTPS, mount your certificates:
+      # - ./ssl/cert:/app/ssl/cert:ro
+      # - ./ssl/key:/app/ssl/key:ro
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - carbon-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 networks:
   carbon-net:
     driver: bridge
+
+volumes:
+  carbon-logs:

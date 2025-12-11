@@ -1,15 +1,16 @@
 #include "performance.h"
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
 
-#define MAX_MMAP_CACHE_SIZE 50
+#define MAX_MMAP_CACHE_SIZE 100
 #define MAX_MMAP_FILE_SIZE (10 * 1024 * 1024) // 10MB
-#define BUFFER_POOL_SIZE 32
-#define DEFAULT_BUFFER_SIZE 16384
+#define BUFFER_POOL_SIZE 64
+#define DEFAULT_BUFFER_SIZE 32768
  
 // Global cache structures
 static mmap_cache_entry_t *mmap_cache = NULL;
