@@ -459,14 +459,25 @@ void log_hexdump(const char *label, const void *data, size_t len)
     
     for (size_t i = 0; i < len; i += 16) {
         int pos = snprintf(line, sizeof(line), "%04zx: ", i);
-        
+        if (pos < 0) pos = 0;
+        if ((size_t) pos>= sizeof(line)) pos = sizeof(line) -1;
+
         for (size_t j = 0; j < 16; j++) {
             if (i + j < len) {
-                pos += snprintf(line + pos, sizeof(line) - pos, "%02x ", bytes[i + j]);
+                int written = snprintf(line + pos, sizeof(line) - pos, "%02x ", bytes[i + j]);
+                if (written > 0 && (size_t)(pos + written) < sizeof(line)) {
+                    pos += written;
+                } else {
+                    pos = sizeof(line) -1;
+                }
                 ascii[j] = isprint(bytes[i + j]) ? bytes[i + j] : '.';
             } else {
-                pos += snprintf(line + pos, sizeof(line) - pos, "   ");
-                ascii[j] = ' ';
+                int written = snprintf(line + pos, sizeof(line) - pos, "   ");
+                if (written > 0 && (size_t)(pos + written)) {
+                    pos += written;
+                } else {
+                    ascii[j] = ' ';
+                }
             }
         }
         ascii[16] = '\0';
