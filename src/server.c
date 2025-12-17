@@ -22,8 +22,6 @@
 #include <sys/resource.h>
 #include <sys/uio.h>
 #include <zlib.h>
-#include <pthread.h>
-#include <sched.h>
 
 #include "server_config.h"
 #include "websocket.h"
@@ -451,8 +449,8 @@ void* start_https_server(void* arg)
 
     set_socket_options(https_socket);
 
-    struct sockaddr_in https_address;
-    memset(&https_address, 0, sizeof(https_address));
+    struct sockaddr_in https_address = {0};
+    //memset(&https_address, 0, sizeof(https_address));
     https_address.sin_family = AF_INET;
     https_address.sin_addr.s_addr = INADDR_ANY;
     https_address.sin_port = htons(443);
@@ -515,7 +513,7 @@ static int is_websocket_upgrade(const char* request)
 
     for (char* p = request_lower; *p; p++)
     {
-        *p = tolower((unsigned char)*p);
+        *p = (char)tolower((unsigned char)*p);
     }
 
     // Check for "upgrade: websocket" and "connection:" containing "upgrade"
@@ -649,8 +647,7 @@ void* handle_http_client(void* arg)
     {
         keep_alive_count++;
 
-        char request_buffer[MAX_REQUEST_SIZE];
-        memset(request_buffer, 0, MAX_REQUEST_SIZE);
+        char request_buffer[MAX_REQUEST_SIZE] = {0};
         ssize_t bytes_received = recv(client_socket, request_buffer, MAX_REQUEST_SIZE - 1, 0);
 
         if (bytes_received > 0)
@@ -853,7 +850,7 @@ void* handle_http_client(void* arg)
                         // Compress on-the-fly and cache it
                         compressed_data = gzip_compress((unsigned char*)cached->mmap_data, cached->size,
                                                         &compressed_size);
-                        if (compressed_data && compressed_size < cached->size * 0.9)
+                        if (compressed_data && compressed_size < (size_t)((double)cached->size * 0.9))
                         {
                             using_compression = 1;
                             needs_free = 1;
@@ -1168,8 +1165,8 @@ void* handle_https_client(void* arg)
         }
     }
 
-    char buffer[MAX_REQUEST_SIZE];
-    memset(buffer, 0, MAX_REQUEST_SIZE);
+    char buffer[MAX_REQUEST_SIZE] = {0};
+    //memset(buffer, 0, MAX_REQUEST_SIZE);
     ssize_t bytes_received = SSL_read(ssl, buffer, MAX_REQUEST_SIZE - 1);
 
     if (bytes_received < 0)
@@ -1199,7 +1196,16 @@ void* handle_https_client(void* arg)
         char response[512];
         if (ws_handle_handshake_ssl(ssl, buffer, response, sizeof(response)) == 0)
         {
-            SSL_write(ssl, response, strlen(response));
+            size_t len = strlen(response);
+            if (len > INT_MAX)
+            {
+                log_event("Response length exceeds INT_MAX");
+                SSL_shutdown(ssl);
+                SSL_free(ssl);
+                close(client_socket);
+                pthread_exit(NULL);
+            }
+            SSL_write(ssl, response, (int)len);
 
             // Create WebSocket connection context
             ws_connection_t* ws_conn = malloc(sizeof(ws_connection_t));
@@ -1234,7 +1240,7 @@ void* handle_https_client(void* arg)
     {
         log_event("Invalid request line.");
         const char* bad_request_response = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid Request";
-        SSL_write(ssl, bad_request_response, strlen(bad_request_response));
+        SSL_write(ssl, bad_request_response, (int)strlen(bad_request_response));
         goto cleanup;
     }
     else
@@ -1252,7 +1258,7 @@ void* handle_https_client(void* arg)
     {
         log_event("Blocked malicious URL");
         const char* forbidden_response = "HTTP/1.1 403 Forbidden\r\n\r\nAccess Denied";
-        SSL_write(ssl, forbidden_response, strlen(forbidden_response));
+        SSL_write(ssl, forbidden_response, (int)strlen(forbidden_response));
         goto cleanup;
     }
 
@@ -1267,7 +1273,7 @@ void* handle_https_client(void* arg)
         log_event("Rate limit exceeded for IP:");
         log_event(client_ip);
         const char* rate_limit_response = "HTTP/1.1 429 Too Many Requests\r\n\r\nRate limit exceeded";
-        SSL_write(ssl, rate_limit_response, strlen(rate_limit_response));
+        SSL_write(ssl, rate_limit_response, (int)strlen(rate_limit_response));
         goto cleanup;
     }
 
@@ -1280,7 +1286,7 @@ void* handle_https_client(void* arg)
     {
         log_event("Path too long, potential buffer overflow attempt (HTTPS)");
         const char* error_response = "HTTP/1.1 414 URI Too Long\r\n\r\n";
-        SSL_write(ssl, error_response, strlen(error_response));
+        SSL_write(ssl, error_response, (int)strlen(error_response));
         goto cleanup;
     }
     log_event("Filepath:");
@@ -1354,7 +1360,7 @@ void* handle_https_client(void* arg)
             else
             {
                 compressed_data = gzip_compress((unsigned char*)cached->mmap_data, cached->size, &compressed_size);
-                if (compressed_data && compressed_size < cached->size * 0.9)
+                if (compressed_data && compressed_size < (size_t)((double)cached->size * 0.9))
                 {
                     using_compression = 1;
                     needs_free = 1;
@@ -1423,7 +1429,7 @@ void* handle_https_client(void* arg)
 
         while (total_sent < size_to_send)
         {
-            int to_send = (size_to_send - total_sent > 65536) ? 65536 : (size_to_send - total_sent);
+            int to_send = (size_to_send - total_sent > 65536) ? 65536 : (int)(size_to_send - total_sent);
             int sent = SSL_write(ssl, (char*)data_to_send + total_sent, to_send);
             if (sent <= 0)
                 break;
@@ -1444,7 +1450,7 @@ void* handle_https_client(void* arg)
     {
         log_event("File open failed");
         const char* not_found_response = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
-        SSL_write(ssl, not_found_response, strlen(not_found_response));
+        SSL_write(ssl, not_found_response, (int)strlen(not_found_response));
         free(mime_type);
         if (if_none_match)
             free(if_none_match);
@@ -1459,7 +1465,7 @@ void* handle_https_client(void* arg)
         log_event("Error getting file size.");
         const char* internal_server_error =
             "HTTP/1.1 500 Internal Server Error\r\n\r\nInternal Server Error";
-        SSL_write(ssl, internal_server_error, strlen(internal_server_error));
+        SSL_write(ssl, internal_server_error, (int)strlen(internal_server_error));
         close(fd);
         free(mime_type);
         if (if_none_match)
@@ -1545,7 +1551,16 @@ void* handle_https_client(void* arg)
     ssize_t bytes_read;
     while ((bytes_read = read(fd, file_buffer, 16384)) > 0)
     {
-        if (SSL_write(ssl, file_buffer, bytes_read) <= 0)
+        if (bytes_read > INT_MAX)
+        {
+            log_event("Read size exceeds INT_MAX");
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(client_socket);
+            pthread_exit(NULL);
+        }
+        int to_write = (int)bytes_read;
+        if (SSL_write(ssl, file_buffer, to_write) <= 0)
         {
             log_event("Error sending file content.");
             break;
@@ -1979,8 +1994,7 @@ int main()
         configure_ssl_context(ssl_ctx);
     }
 
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
+    struct sigaction sa = {0};
     sa.sa_handler = signal_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART; // Restart interrupted system calls

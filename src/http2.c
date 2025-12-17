@@ -1,6 +1,5 @@
 #include "http2.h"
 #include "server_config.h"
-#include "logging.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +9,7 @@
 #include <errno.h>
 
 extern ServerConfig config;
-extern void log_event(const char* message);
+
 extern char* get_mime_type(const char* filepath);
 extern char* sanitize_url(const char* url);
 
@@ -26,19 +25,10 @@ int alpn_select_proto_cb(SSL* ssl, const unsigned char** out,
                                            in, inlen);
 
     if (ret == 1)
-    {
-        // HTTP/2 selected
-        return SSL_TLSEXT_ERR_OK;
-    }
+        return SSL_TLSEXT_ERR_OK; // HTTP/2 selected
     else if (ret == 0)
-    {
-        // HTTP/1.1 selected
-        return SSL_TLSEXT_ERR_OK;
-    }
+        return SSL_TLSEXT_ERR_OK; // HTTP/1.1 selected
 
-    // No match, use HTTP/1.1 as fallback
-    *out = (const unsigned char*)"http/1.1";
-    *outlen = 8;
     return SSL_TLSEXT_ERR_OK;
 }
 
