@@ -135,7 +135,7 @@ make              # Standard build
 make debug        # Debug build with symbols
 make release      # Optimized release build
 make clean        # Clean build artifacts
-make install-deps # Install all dependencies
+make install-deps # Install all dependencies (Debian systems only)
 ```
 
 ### Using Docker
