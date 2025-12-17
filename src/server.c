@@ -935,7 +935,9 @@ void* handle_http_client(void* arg)
                     {
                         ssize_t sent = send(client_socket, (char*)data_to_send + total_sent,
                                             size_to_send - total_sent, 0);
-                        if (sent <= 0)
+                        if (sent == -1)
+                            perror("Send failed!");
+                        else if (sent <= 0)
                             break;
                         total_sent += sent;
                     }
@@ -1774,6 +1776,7 @@ void* worker_thread(void* arg)
                 *socket_ptr = task->socket_fd;
                 handle_https_client(socket_ptr);
             }
+            free(socket_ptr);
         }
         else
         {
