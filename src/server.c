@@ -22,6 +22,8 @@
 #include <sys/resource.h>
 #include <sys/uio.h>
 #include <zlib.h>
+#include <pthread.h>
+#include <sched.h>
 
 #include "server_config.h"
 #include "websocket.h"
@@ -758,9 +760,8 @@ void* handle_http_client(void* arg)
             }
 
             char filepath[512];
-            int written = snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
-                                   (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
-            free(sanitized_url);
+            char *url_to_use = (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url;
+            int written = snprintf(filepath, sizeof(filepath), "%s%s", config.www_path, url_to_use);
 
             if (written < 0 || written >= (int)sizeof(filepath))
             {
@@ -913,12 +914,21 @@ void* handle_http_client(void* arg)
                     iov[0].iov_len = header_len;
                     iov[1].iov_base = data_to_send;
                     iov[1].iov_len = size_to_send;
-                    ssize_t written = writev(client_socket, iov, 2);
-                    (void)written;
+                    ssize_t written_mem = writev(client_socket, iov, 2);
+                    (void)written_mem;
                 }
                 else
                 {
                     send(client_socket, response_header, header_len, 0);
+
+                    if (!data_to_send) {
+                        log_event("Error : No data to send from cache");
+                        release_cached_file(cached);
+                        free(mime_type);
+                        if (needs_free && compressed_data)
+                            free(compressed_data);
+                        goto done_serving;
+                    }
 
                     size_t total_sent = 0;
                     while (total_sent < size_to_send)
@@ -956,6 +966,7 @@ void* handle_http_client(void* arg)
             else
             {
                 struct stat st;
+
                 if (fstat(fd, &st) == -1)
                 {
                     log_event("Error getting file size.");
@@ -1066,7 +1077,6 @@ void* handle_http_client(void* arg)
 
     close(client_socket);
     pthread_exit(NULL);
-
 cleanup:
     close(client_socket);
     pthread_exit(NULL);
@@ -1262,8 +1272,8 @@ void* handle_https_client(void* arg)
     }
 
     char filepath[512];
-    int written = snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
-                           (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
+    char *url_to_use = (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url;
+    int written = snprintf(filepath, sizeof(filepath), "%s%s", config.www_path, url_to_use);
     free(sanitized_url);
 
     if (written < 0 || written >= (int)sizeof(filepath))
@@ -1401,6 +1411,16 @@ void* handle_https_client(void* arg)
         size_t size_to_send = using_compression ? compressed_size : cached->size;
 
         size_t total_sent = 0;
+
+        if (!data_to_send) {
+            log_event("Error : No data to send from cache (HTTPS - null data)");
+            release_cached_file(cached);
+            free(mime_type);
+            if (needs_free && compressed_data)
+                free(compressed_data);
+            goto cleanup;
+        }
+
         while (total_sent < size_to_send)
         {
             int to_send = (size_to_send - total_sent > 65536) ? 65536 : (size_to_send - total_sent);
