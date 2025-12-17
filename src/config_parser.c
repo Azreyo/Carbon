@@ -171,7 +171,7 @@ int load_config(const char* filename, ServerConfig* config)
         switch (get_config_key(key))
         {
         case CONFIG_PORT:
-            config->port = strcoll(value, value);
+            config->port = (int)strtol(value, NULL, 10);
             printf("load_config: port = %d\n", config->port);
             break;
 
@@ -187,7 +187,7 @@ int load_config(const char* filename, ServerConfig* config)
             break;
 
         case CONFIG_MAX_THREADS:
-            config->max_threads = strcoll(value, value);
+            config->max_threads = (int)strtol(value, NULL, 10);
             printf("load_config: max_threads = %d\n", config->max_threads);
             break;
 
