@@ -5,33 +5,33 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <stdio.h>
 
 #define MAX_MMAP_CACHE_SIZE 100
 #define MAX_MMAP_FILE_SIZE (10 * 1024 * 1024) // 10MB
 #define BUFFER_POOL_SIZE 64
 #define DEFAULT_BUFFER_SIZE 32768
- 
+
 // Global cache structures
-static mmap_cache_entry_t *mmap_cache = NULL;
+static mmap_cache_entry_t* mmap_cache = NULL;
 static int mmap_cache_size = 0;
 static pthread_mutex_t mmap_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static buffer_pool_t *buffer_pool = NULL;
+static buffer_pool_t* buffer_pool = NULL;
 static pthread_mutex_t buffer_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
-  
+
 // Pre-allocated response headers
-const char *response_200_header = "HTTP/1.1 200 OK\r\n";
-const char *response_404_header = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
-const char *response_403_header = "HTTP/1.1 403 Forbidden\r\n\r\nAccess Denied";
-const char *response_429_header = "HTTP/1.1 429 Too Many Requests\r\n\r\nRate limit exceeded";
-const char *response_500_header = "HTTP/1.1 500 Internal Server Error\r\n\r\nInternal Server Error";
-const char *response_503_header = "HTTP/1.1 503 Service Unavailable\r\n\r\nServer overloaded";
+const char* response_200_header = "HTTP/1.1 200 OK\r\n";
+const char* response_404_header = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
+const char* response_403_header = "HTTP/1.1 403 Forbidden\r\n\r\nAccess Denied";
+const char* response_429_header = "HTTP/1.1 429 Too Many Requests\r\n\r\nRate limit exceeded";
+const char* response_500_header = "HTTP/1.1 500 Internal Server Error\r\n\r\nInternal Server Error";
+const char* response_503_header = "HTTP/1.1 503 Service Unavailable\r\n\r\nServer overloaded";
 
 // Common MIME types cache
-typedef struct {
-    const char *ext;
-    const char *mime;
+typedef struct
+{
+    const char* ext;
+    const char* mime;
 } mime_cache_t;
 
 static const mime_cache_t mime_cache[] = {
@@ -55,9 +55,12 @@ static const mime_cache_t mime_cache[] = {
     {NULL, NULL}
 };
 
-const char *get_mime_from_cache(const char *ext) {
-    for (int i = 0; mime_cache[i].ext != NULL; i++) {
-        if (strcasecmp(ext, mime_cache[i].ext) == 0) {
+const char* get_mime_from_cache(const char* ext)
+{
+    for (int i = 0; mime_cache[i].ext != NULL; i++)
+    {
+        if (strcasecmp(ext, mime_cache[i].ext) == 0)
+        {
             return mime_cache[i].mime;
         }
     }
@@ -65,7 +68,7 @@ const char *get_mime_from_cache(const char *ext) {
 }
 
 // Task queue implementation
-void init_task_queue(task_queue_t *queue)
+void init_task_queue(task_queue_t* queue)
 {
     queue->head = NULL;
     queue->tail = NULL;
@@ -74,14 +77,14 @@ void init_task_queue(task_queue_t *queue)
     pthread_cond_init(&queue->cond, NULL);
 }
 
-void enqueue_task(task_queue_t *queue, int socket_fd, SSL *ssl, bool is_https)
+void enqueue_task(task_queue_t* queue, int socket_fd, SSL* ssl, bool is_https)
 {
     if (queue->count >= WORKER_QUEUE_SIZE - 1)
     {
         return;
     }
-    
-    connection_task_t *task = malloc(sizeof(connection_task_t));
+
+    connection_task_t* task = malloc(sizeof(connection_task_t));
     if (!task)
         return;
 
@@ -107,7 +110,7 @@ void enqueue_task(task_queue_t *queue, int socket_fd, SSL *ssl, bool is_https)
     pthread_mutex_unlock(&queue->mutex);
 }
 
-connection_task_t *dequeue_task(task_queue_t *queue)
+connection_task_t* dequeue_task(task_queue_t* queue)
 {
     pthread_mutex_lock(&queue->mutex);
 
@@ -116,7 +119,7 @@ connection_task_t *dequeue_task(task_queue_t *queue)
         pthread_cond_wait(&queue->cond, &queue->mutex);
     }
 
-    connection_task_t *task = queue->head;
+    connection_task_t* task = queue->head;
     queue->head = task->next;
 
     if (queue->head == NULL)
@@ -129,14 +132,14 @@ connection_task_t *dequeue_task(task_queue_t *queue)
     return task;
 }
 
-void destroy_task_queue(task_queue_t *queue)
+void destroy_task_queue(task_queue_t* queue)
 {
     pthread_mutex_lock(&queue->mutex);
 
-    connection_task_t *current = queue->head;
+    connection_task_t* current = queue->head;
     while (current)
     {
-        connection_task_t *next = current->next;
+        connection_task_t* next = current->next;
         free(current);
         current = next;
     }
@@ -152,7 +155,7 @@ void init_mmap_cache(void)
     mmap_cache = calloc(MAX_MMAP_CACHE_SIZE, sizeof(mmap_cache_entry_t));
 }
 
-mmap_cache_entry_t *get_cached_file(const char *path)
+mmap_cache_entry_t* get_cached_file(const char* path)
 {
     pthread_mutex_lock(&mmap_cache_mutex);
 
@@ -165,7 +168,7 @@ mmap_cache_entry_t *get_cached_file(const char *path)
                 pthread_mutex_unlock(&mmap_cache_mutex);
                 return NULL;
             }
-            
+
             mmap_cache[i].last_access = time(NULL);
             mmap_cache[i].ref_count++;
             pthread_mutex_unlock(&mmap_cache_mutex);
@@ -177,7 +180,7 @@ mmap_cache_entry_t *get_cached_file(const char *path)
     return NULL;
 }
 
-void cache_file_mmap(const char *path, size_t size, const char *mime_type)
+void cache_file_mmap(const char* path, size_t size, const char* mime_type)
 {
     if (size > MAX_MMAP_FILE_SIZE)
         return;
@@ -239,7 +242,7 @@ void cache_file_mmap(const char *path, size_t size, const char *mime_type)
         return;
     }
 
-    void *mapped = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    void* mapped = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
     close(fd);
 
     if (mapped == MAP_FAILED)
@@ -263,7 +266,7 @@ void cache_file_mmap(const char *path, size_t size, const char *mime_type)
     pthread_mutex_unlock(&mmap_cache_mutex);
 }
 
-void release_cached_file(mmap_cache_entry_t *entry)
+void release_cached_file(mmap_cache_entry_t* entry)
 {
     pthread_mutex_lock(&mmap_cache_mutex);
     entry->ref_count--;
@@ -298,7 +301,7 @@ void init_buffer_pool(void)
 
     for (int i = 0; i < BUFFER_POOL_SIZE; i++)
     {
-        buffer_pool_t *buf = malloc(sizeof(buffer_pool_t));
+        buffer_pool_t* buf = malloc(sizeof(buffer_pool_t));
         if (buf)
         {
             buf->buffer = malloc(DEFAULT_BUFFER_SIZE);
@@ -312,19 +315,19 @@ void init_buffer_pool(void)
     pthread_mutex_unlock(&buffer_pool_mutex);
 }
 
-char *get_buffer_from_pool(size_t min_size)
+char* get_buffer_from_pool(size_t min_size)
 {
     if (min_size > DEFAULT_BUFFER_SIZE * 4)
     {
         // For very large requests, allocate directly
         return malloc(min_size);
     }
-    
+
     pthread_mutex_lock(&buffer_pool_mutex);
 
-    buffer_pool_t *current = buffer_pool;
-    buffer_pool_t *best_fit = NULL;
-    
+    buffer_pool_t* current = buffer_pool;
+    buffer_pool_t* best_fit = NULL;
+
     // Find best fit buffer (smallest that fits)
     while (current)
     {
@@ -337,7 +340,7 @@ char *get_buffer_from_pool(size_t min_size)
         }
         current = current->next;
     }
-    
+
     if (best_fit)
     {
         best_fit->in_use = true;
@@ -350,11 +353,11 @@ char *get_buffer_from_pool(size_t min_size)
     return malloc(min_size);
 }
 
-void return_buffer_to_pool(char *buffer)
+void return_buffer_to_pool(char* buffer)
 {
     pthread_mutex_lock(&buffer_pool_mutex);
 
-    buffer_pool_t *current = buffer_pool;
+    buffer_pool_t* current = buffer_pool;
     while (current)
     {
         if (current->buffer == buffer)
@@ -376,10 +379,10 @@ void cleanup_buffer_pool(void)
 {
     pthread_mutex_lock(&buffer_pool_mutex);
 
-    buffer_pool_t *current = buffer_pool;
+    buffer_pool_t* current = buffer_pool;
     while (current)
     {
-        buffer_pool_t *next = current->next;
+        buffer_pool_t* next = current->next;
         free(current->buffer);
         free(current);
         current = next;

@@ -13,21 +13,19 @@
 #define SHA1_DIGEST_LENGTH 20
 
 // Base64 encode function
-static char *base64_encode(const unsigned char *input, int length)
+static char* base64_encode(const unsigned char* input, int length)
 {
-    BIO *bmem, *b64;
-    BUF_MEM *bptr;
-
-    b64 = BIO_new(BIO_f_base64());
-    bmem = BIO_new(BIO_s_mem());
+    BIO *bmem = BIO_new(BIO_s_mem()), *b64 = BIO_new(BIO_f_base64());;
+    BUF_MEM* bptr;
     b64 = BIO_push(b64, bmem);
     BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
     BIO_write(b64, input, length);
     BIO_flush(b64);
     BIO_get_mem_ptr(b64, &bptr);
 
-    char *buff = (char *)malloc(bptr->length + 1);
-    if (!buff) {
+    char* buff = (char*)malloc(bptr->length + 1);
+    if (!buff)
+    {
         BIO_free_all(b64);
         return NULL;
     }
@@ -40,15 +38,16 @@ static char *base64_encode(const unsigned char *input, int length)
 }
 
 // Generate WebSocket accept key from client key
-char *ws_generate_accept_key(const char *client_key)
+char* ws_generate_accept_key(const char* client_key)
 {
-    if (!client_key || strlen(client_key) > 128) {
-        return NULL;  // Security: validate input length
+    if (!client_key || strlen(client_key) > 128)
+    {
+        return NULL; // Security: validate input length
     }
-    
+
     char combined[256];
     int written = snprintf(combined, sizeof(combined), "%s%s", client_key, WS_GUID);
-    
+
     if (written < 0 || written >= (int)sizeof(combined))
     {
         return NULL;
@@ -56,15 +55,17 @@ char *ws_generate_accept_key(const char *client_key)
 
     unsigned char hash[SHA1_DIGEST_LENGTH];
     unsigned int hash_len = 0;
-    
-    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-    if (!ctx) {
+
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (!ctx)
+    {
         return NULL;
     }
-    
+
     if (EVP_DigestInit_ex(ctx, EVP_sha1(), NULL) != 1 ||
         EVP_DigestUpdate(ctx, combined, strlen(combined)) != 1 ||
-        EVP_DigestFinal_ex(ctx, hash, &hash_len) != 1) {
+        EVP_DigestFinal_ex(ctx, hash, &hash_len) != 1)
+    {
         EVP_MD_CTX_free(ctx);
         return NULL;
     }
@@ -74,20 +75,20 @@ char *ws_generate_accept_key(const char *client_key)
 }
 
 // Handle WebSocket handshake
-int ws_handle_handshake(int client_socket, const char *request, char *response, size_t response_size)
+int ws_handle_handshake(int client_socket, const char* request, char* response, size_t response_size)
 {
     (void)client_socket; // Unused in this implementation
 
     // Extract Sec-WebSocket-Key from request
-    const char *key_header = "Sec-WebSocket-Key: ";
-    char *key_start = strstr(request, key_header);
+    const char* key_header = "Sec-WebSocket-Key: ";
+    char* key_start = strstr(request, key_header);
     if (!key_start)
     {
         return -1;
     }
     key_start += strlen(key_header);
 
-    char *key_end = strstr(key_start, "\r\n");
+    char* key_end = strstr(key_start, "\r\n");
     if (!key_end)
     {
         return -1;
@@ -95,7 +96,7 @@ int ws_handle_handshake(int client_socket, const char *request, char *response, 
 
     char client_key[256];
     size_t key_len = key_end - key_start;
-    if (key_len >= sizeof(client_key) || key_len == 0 || key_len > 1024)
+    if (key_len >= sizeof(client_key) || key_len == 0)
     {
         return -1;
     }
@@ -103,7 +104,7 @@ int ws_handle_handshake(int client_socket, const char *request, char *response, 
     client_key[key_len] = '\0';
 
     // Generate accept key
-    char *accept_key = ws_generate_accept_key(client_key);
+    char* accept_key = ws_generate_accept_key(client_key);
     if (!accept_key)
     {
         return -1;
@@ -111,36 +112,36 @@ int ws_handle_handshake(int client_socket, const char *request, char *response, 
 
     // Create handshake response
     int written = snprintf(response, response_size,
-             "HTTP/1.1 101 Switching Protocols\r\n"
-             "Upgrade: websocket\r\n"
-             "Connection: Upgrade\r\n"
-             "Sec-WebSocket-Accept: %s\r\n"
-             "\r\n",
-             accept_key);
+                           "HTTP/1.1 101 Switching Protocols\r\n"
+                           "Upgrade: websocket\r\n"
+                           "Connection: Upgrade\r\n"
+                           "Sec-WebSocket-Accept: %s\r\n"
+                           "\r\n",
+                           accept_key);
 
     free(accept_key);
-    
+
     if (written < 0 || written >= (int)response_size)
     {
         return -1;
     }
-    
+
     return 0;
 }
 
 // Handle WebSocket handshake for SSL connections
-int ws_handle_handshake_ssl(SSL *ssl, const char *request, char *response, size_t response_size)
+int ws_handle_handshake_ssl(SSL* ssl, const char* request, char* response, size_t response_size)
 {
     (void)ssl; // Use the same logic, just different transport
     return ws_handle_handshake(0, request, response, response_size);
 }
 
 // Parse WebSocket frame
-int ws_parse_frame(const uint8_t *data, size_t len, ws_frame_header_t *header, uint8_t **payload)
+int ws_parse_frame(const uint8_t* data, size_t len, ws_frame_header_t* header, uint8_t** payload)
 {
     // Maximum allowed WebSocket payload size (10MB)
-    #define MAX_WEBSOCKET_PAYLOAD (10 * 1024 * 1024)
-    
+#define MAX_WEBSOCKET_PAYLOAD (10 * 1024 * 1024)
+
     if (len < 2)
     {
         return -1;
@@ -195,7 +196,7 @@ int ws_parse_frame(const uint8_t *data, size_t len, ws_frame_header_t *header, u
     }
 
     // Unmask payload if masked
-    *payload = (uint8_t *)malloc(header->payload_length);
+    *payload = (uint8_t*)malloc(header->payload_length);
     if (!*payload)
     {
         return -1;
@@ -217,10 +218,10 @@ int ws_parse_frame(const uint8_t *data, size_t len, ws_frame_header_t *header, u
 }
 
 // Create WebSocket frame
-int ws_create_frame(uint8_t *buffer, size_t buffer_size, uint8_t opcode, const uint8_t *payload, size_t payload_len)
+int ws_create_frame(uint8_t* buffer, size_t buffer_size, uint8_t opcode, const uint8_t* payload, size_t payload_len)
 {
     size_t header_size;
-    
+
     // Calculate total frame size first
     if (payload_len < 126)
     {
@@ -234,13 +235,13 @@ int ws_create_frame(uint8_t *buffer, size_t buffer_size, uint8_t opcode, const u
     {
         header_size = 10;
     }
-    
+
     // Check buffer size before writing anything
     if (buffer_size < header_size + payload_len)
     {
         return -1;
     }
-    
+
     size_t offset = 0;
 
     // First byte: FIN + opcode
@@ -277,7 +278,7 @@ int ws_create_frame(uint8_t *buffer, size_t buffer_size, uint8_t opcode, const u
 }
 
 // Send WebSocket frame
-int ws_send_frame(ws_connection_t *conn, uint8_t opcode, const uint8_t *payload, size_t payload_len)
+int ws_send_frame(ws_connection_t* conn, uint8_t opcode, const uint8_t* payload, size_t payload_len)
 {
     // Allocate buffer with enough space for header (max 10 bytes) + payload
     // Check for integer overflow
@@ -285,7 +286,7 @@ int ws_send_frame(ws_connection_t *conn, uint8_t opcode, const uint8_t *payload,
     {
         return -1;
     }
-    
+
     size_t max_frame_size = 10 + payload_len;
     if (max_frame_size > 65536)
     {
@@ -319,19 +320,19 @@ int ws_send_frame(ws_connection_t *conn, uint8_t opcode, const uint8_t *payload,
 }
 
 // Send text message
-int ws_send_text(ws_connection_t *conn, const char *text)
+int ws_send_text(ws_connection_t* conn, const char* text)
 {
-    return ws_send_frame(conn, WS_OPCODE_TEXT, (const uint8_t *)text, strlen(text));
+    return ws_send_frame(conn, WS_OPCODE_TEXT, (const uint8_t*)text, strlen(text));
 }
 
 // Send pong response
-int ws_send_pong(ws_connection_t *conn, const uint8_t *payload, size_t payload_len)
+int ws_send_pong(ws_connection_t* conn, const uint8_t* payload, size_t payload_len)
 {
     return ws_send_frame(conn, WS_OPCODE_PONG, payload, payload_len);
 }
 
 // Close WebSocket connection
-void ws_close_connection(ws_connection_t *conn, uint16_t status_code)
+void ws_close_connection(ws_connection_t* conn, uint16_t status_code)
 {
     uint8_t close_payload[2];
     close_payload[0] = (status_code >> 8) & 0xFF;
@@ -348,7 +349,7 @@ void ws_close_connection(ws_connection_t *conn, uint16_t status_code)
 }
 
 // Validate UTF-8 encoding
-bool ws_is_valid_utf8(const uint8_t *data, size_t len)
+bool ws_is_valid_utf8(const uint8_t* data, size_t len)
 {
     size_t i = 0;
     while (i < len)
@@ -371,7 +372,8 @@ bool ws_is_valid_utf8(const uint8_t *data, size_t len)
         }
         else if ((data[i] & 0xF8) == 0xF0)
         {
-            if (i + 3 >= len || (data[i + 1] & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80 || (data[i + 3] & 0xC0) != 0x80)
+            if (i + 3 >= len || (data[i + 1] & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80 || (data[i + 3] & 0xC0) !=
+                0x80)
                 return false;
             i += 4;
         }

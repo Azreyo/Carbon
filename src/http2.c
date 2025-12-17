@@ -10,19 +10,19 @@
 #include <errno.h>
 
 extern ServerConfig config;
-extern void log_event(const char *message);
-extern char *get_mime_type(const char *filepath);
-extern char *sanitize_url(const char *url);
+extern void log_event(const char* message);
+extern char* get_mime_type(const char* filepath);
+extern char* sanitize_url(const char* url);
 
 // ALPN callback - select HTTP/2 protocol
-int alpn_select_proto_cb(SSL *ssl, const unsigned char **out,
-                         unsigned char *outlen, const unsigned char *in,
-                         unsigned int inlen, void *arg)
+int alpn_select_proto_cb(SSL* ssl, const unsigned char** out,
+                         unsigned char* outlen, const unsigned char* in,
+                         unsigned int inlen, void* arg)
 {
     (void)ssl;
     (void)arg;
 
-    int ret = nghttp2_select_next_protocol((unsigned char **)out, outlen,
+    int ret = nghttp2_select_next_protocol((unsigned char**)out, outlen,
                                            in, inlen);
 
     if (ret == 1)
@@ -37,17 +37,17 @@ int alpn_select_proto_cb(SSL *ssl, const unsigned char **out,
     }
 
     // No match, use HTTP/1.1 as fallback
-    *out = (const unsigned char *)"http/1.1";
+    *out = (const unsigned char*)"http/1.1";
     *outlen = 8;
     return SSL_TLSEXT_ERR_OK;
 }
 
 // Data read callback for nghttp2
-static ssize_t file_read_callback(nghttp2_session *session, int32_t stream_id,
-                                  uint8_t *buf, size_t length,
-                                  uint32_t *data_flags,
-                                  nghttp2_data_source *source,
-                                  void *user_data)
+static ssize_t file_read_callback(nghttp2_session* session, int32_t stream_id,
+                                  uint8_t* buf, size_t length,
+                                  uint32_t* data_flags,
+                                  nghttp2_data_source* source,
+                                  void* user_data)
 {
     (void)session;
     (void)stream_id;
@@ -56,8 +56,7 @@ static ssize_t file_read_callback(nghttp2_session *session, int32_t stream_id,
     int fd = source->fd;
     ssize_t nread;
 
-    while ((nread = read(fd, buf, length)) == -1 && errno == EINTR)
-        ;
+    while ((nread = read(fd, buf, length)) == -1 && errno == EINTR);
 
     if (nread == -1)
     {
@@ -73,13 +72,13 @@ static ssize_t file_read_callback(nghttp2_session *session, int32_t stream_id,
 }
 
 // Send callback for nghttp2
-static ssize_t send_callback(nghttp2_session *session, const uint8_t *data,
-                             size_t length, int flags, void *user_data)
+static ssize_t send_callback(nghttp2_session* session, const uint8_t* data,
+                             size_t length, int flags, void* user_data)
 {
     (void)session;
     (void)flags;
 
-    http2_session_t *h2_session = (http2_session_t *)user_data;
+    http2_session_t* h2_session = (http2_session_t*)user_data;
     ssize_t rv;
 
     if (h2_session->ssl)
@@ -112,13 +111,13 @@ static ssize_t send_callback(nghttp2_session *session, const uint8_t *data,
 }
 
 // Receive callback for nghttp2
-static ssize_t recv_callback(nghttp2_session *session, uint8_t *buf,
-                             size_t length, int flags, void *user_data)
+static ssize_t recv_callback(nghttp2_session* session, uint8_t* buf,
+                             size_t length, int flags, void* user_data)
 {
     (void)session;
     (void)flags;
 
-    http2_session_t *h2_session = (http2_session_t *)user_data;
+    http2_session_t* h2_session = (http2_session_t*)user_data;
     ssize_t rv;
 
     if (h2_session->ssl)
@@ -159,9 +158,9 @@ static ssize_t recv_callback(nghttp2_session *session, uint8_t *buf,
 }
 
 // Frame receive callback
-static int on_frame_recv_callback(nghttp2_session *session,
-                                  const nghttp2_frame *frame,
-                                  void *user_data)
+static int on_frame_recv_callback(nghttp2_session* session,
+                                  const nghttp2_frame* frame,
+                                  void* user_data)
 {
     (void)user_data;
 
@@ -173,28 +172,29 @@ static int on_frame_recv_callback(nghttp2_session *session,
             log_event("HTTP/2: Received HEADERS frame (request)");
 
             // Get stream data
-            http2_stream_data_t *stream_data =
-                (http2_stream_data_t *)nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
+            http2_stream_data_t* stream_data =
+                (http2_stream_data_t*)nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
 
             if (stream_data && (frame->hd.flags & NGHTTP2_FLAG_END_STREAM))
             {
                 // Request is complete, send response
-                char *path = stream_data->request_path;
+                char* path = stream_data->request_path;
                 if (strlen(path) == 0)
                 {
                     strcpy(path, "/");
                 }
 
                 // Sanitize URL
-                char *sanitized = sanitize_url(path);
+                char* sanitized = sanitize_url(path);
                 if (!sanitized)
                 {
                     log_event("HTTP/2: Blocked malicious URL");
 
                     // Send 403 error
                     nghttp2_nv hdrs[] = {
-                        {(uint8_t *)":status", (uint8_t *)"403", 7, 3, NGHTTP2_NV_FLAG_NONE},
-                        {(uint8_t *)"content-type", (uint8_t *)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}};
+                        {(uint8_t*)":status", (uint8_t*)"403", 7, 3, NGHTTP2_NV_FLAG_NONE},
+                        {(uint8_t*)"content-type", (uint8_t*)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}
+                    };
                     nghttp2_submit_response(session, frame->hd.stream_id, hdrs, 2, NULL);
                     break;
                 }
@@ -213,8 +213,9 @@ static int on_frame_recv_callback(nghttp2_session *session,
 
                     // Send 404 error
                     nghttp2_nv hdrs[] = {
-                        {(uint8_t *)":status", (uint8_t *)"404", 7, 3, NGHTTP2_NV_FLAG_NONE},
-                        {(uint8_t *)"content-type", (uint8_t *)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}};
+                        {(uint8_t*)":status", (uint8_t*)"404", 7, 3, NGHTTP2_NV_FLAG_NONE},
+                        {(uint8_t*)"content-type", (uint8_t*)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}
+                    };
                     nghttp2_submit_response(session, frame->hd.stream_id, hdrs, 2, NULL);
                     break;
                 }
@@ -228,8 +229,9 @@ static int on_frame_recv_callback(nghttp2_session *session,
 
                     // Send 500 error
                     nghttp2_nv hdrs[] = {
-                        {(uint8_t *)":status", (uint8_t *)"500", 7, 3, NGHTTP2_NV_FLAG_NONE},
-                        {(uint8_t *)"content-type", (uint8_t *)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}};
+                        {(uint8_t*)":status", (uint8_t*)"500", 7, 3, NGHTTP2_NV_FLAG_NONE},
+                        {(uint8_t*)"content-type", (uint8_t*)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}
+                    };
                     nghttp2_submit_response(session, frame->hd.stream_id, hdrs, 2, NULL);
                     break;
                 }
@@ -238,17 +240,18 @@ static int on_frame_recv_callback(nghttp2_session *session,
                 {
                     close(fd);
                     log_event("HTTP/2: File size out of bounds");
-                    
+
                     // Send 500 error
                     nghttp2_nv hdrs[] = {
-                        {(uint8_t *)":status", (uint8_t *)"500", 7, 3, NGHTTP2_NV_FLAG_NONE},
-                        {(uint8_t *)"content-type", (uint8_t *)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}};
+                        {(uint8_t*)":status", (uint8_t*)"500", 7, 3, NGHTTP2_NV_FLAG_NONE},
+                        {(uint8_t*)"content-type", (uint8_t*)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}
+                    };
                     nghttp2_submit_response(session, frame->hd.stream_id, hdrs, 2, NULL);
                     break;
                 }
 
                 // Get MIME type
-                char *mime_type = get_mime_type(filepath);
+                char* mime_type = get_mime_type(filepath);
                 if (!mime_type)
                 {
                     mime_type = strdup("application/octet-stream");
@@ -260,7 +263,7 @@ static int on_frame_recv_callback(nghttp2_session *session,
                 stream_data->mime_type = mime_type;
 
                 // Build response headers - allocate content length string
-                char *content_length = malloc(32);
+                char* content_length = malloc(32);
                 if (!content_length)
                 {
                     close(fd);
@@ -274,10 +277,14 @@ static int on_frame_recv_callback(nghttp2_session *session,
                 stream_data->content_length = content_length;
 
                 nghttp2_nv hdrs[] = {
-                    {(uint8_t *)":status", (uint8_t *)"200", 7, 3, NGHTTP2_NV_FLAG_NONE},
-                    {(uint8_t *)"content-type", (uint8_t *)mime_type, 12, strlen(mime_type), NGHTTP2_NV_FLAG_NONE},
-                    {(uint8_t *)"content-length", (uint8_t *)content_length, 14, strlen(content_length), NGHTTP2_NV_FLAG_NONE},
-                    {(uint8_t *)"server", (uint8_t *)"Carbon/2.0", 6, 10, NGHTTP2_NV_FLAG_NONE}};
+                    {(uint8_t*)":status", (uint8_t*)"200", 7, 3, NGHTTP2_NV_FLAG_NONE},
+                    {(uint8_t*)"content-type", (uint8_t*)mime_type, 12, strlen(mime_type), NGHTTP2_NV_FLAG_NONE},
+                    {
+                        (uint8_t*)"content-length", (uint8_t*)content_length, 14, strlen(content_length),
+                        NGHTTP2_NV_FLAG_NONE
+                    },
+                    {(uint8_t*)"server", (uint8_t*)"Carbon/2.0", 6, 10, NGHTTP2_NV_FLAG_NONE}
+                };
 
                 // Submit response with file data provider
                 nghttp2_data_provider data_prd;
@@ -307,15 +314,15 @@ static int on_frame_recv_callback(nghttp2_session *session,
 }
 
 // Stream close callback
-static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
-                                    uint32_t error_code, void *user_data)
+static int on_stream_close_callback(nghttp2_session* session, int32_t stream_id,
+                                    uint32_t error_code, void* user_data)
 {
     (void)error_code;
     (void)user_data;
 
     // Get stream data and clean up
-    http2_stream_data_t *stream_data =
-        (http2_stream_data_t *)nghttp2_session_get_stream_user_data(session, stream_id);
+    http2_stream_data_t* stream_data =
+        (http2_stream_data_t*)nghttp2_session_get_stream_user_data(session, stream_id);
 
     if (stream_data)
     {
@@ -340,11 +347,11 @@ static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
 }
 
 // Header callback
-static int on_header_callback(nghttp2_session *session,
-                              const nghttp2_frame *frame,
-                              const uint8_t *name, size_t namelen,
-                              const uint8_t *value, size_t valuelen,
-                              uint8_t flags, void *user_data)
+static int on_header_callback(nghttp2_session* session,
+                              const nghttp2_frame* frame,
+                              const uint8_t* name, size_t namelen,
+                              const uint8_t* value, size_t valuelen,
+                              uint8_t flags, void* user_data)
 {
     (void)flags;
     (void)user_data;
@@ -356,8 +363,8 @@ static int on_header_callback(nghttp2_session *session,
     }
 
     // Get stream data
-    http2_stream_data_t *stream_data =
-        (http2_stream_data_t *)nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
+    http2_stream_data_t* stream_data =
+        (http2_stream_data_t*)nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
 
     if (!stream_data)
     {
@@ -367,7 +374,9 @@ static int on_header_callback(nghttp2_session *session,
     // Process request headers
     if (namelen == 5 && memcmp(name, ":path", 5) == 0)
     {
-        size_t copy_len = valuelen < sizeof(stream_data->request_path) - 1 ? valuelen : sizeof(stream_data->request_path) - 1;
+        size_t copy_len = valuelen < sizeof(stream_data->request_path) - 1
+                              ? valuelen
+                              : sizeof(stream_data->request_path) - 1;
         memcpy(stream_data->request_path, value, copy_len);
         stream_data->request_path[copy_len] = '\0';
 
@@ -380,9 +389,9 @@ static int on_header_callback(nghttp2_session *session,
 }
 
 // Begin headers callback
-static int on_begin_headers_callback(nghttp2_session *session,
-                                     const nghttp2_frame *frame,
-                                     void *user_data)
+static int on_begin_headers_callback(nghttp2_session* session,
+                                     const nghttp2_frame* frame,
+                                     void* user_data)
 {
     (void)session;
     (void)user_data;
@@ -394,7 +403,7 @@ static int on_begin_headers_callback(nghttp2_session *session,
     }
 
     // Allocate stream data
-    http2_stream_data_t *stream_data = calloc(1, sizeof(http2_stream_data_t));
+    http2_stream_data_t* stream_data = calloc(1, sizeof(http2_stream_data_t));
     if (!stream_data)
     {
         return NGHTTP2_ERR_CALLBACK_FAILURE;
@@ -404,14 +413,14 @@ static int on_begin_headers_callback(nghttp2_session *session,
     stream_data->fd = -1;
 
     nghttp2_session_set_stream_user_data(session, frame->hd.stream_id, stream_data);
-
+    free(stream_data);
     return 0;
 }
 
 // Data chunk receive callback
-static int on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags,
-                                       int32_t stream_id, const uint8_t *data,
-                                       size_t len, void *user_data)
+static int on_data_chunk_recv_callback(nghttp2_session* session, uint8_t flags,
+                                       int32_t stream_id, const uint8_t* data,
+                                       size_t len, void* user_data)
 {
     (void)session;
     (void)flags;
@@ -425,14 +434,14 @@ static int on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags,
 }
 
 // Initialize HTTP/2 session
-int http2_session_init(http2_session_t *h2_session, int client_socket, SSL *ssl)
+int http2_session_init(http2_session_t* h2_session, int client_socket, SSL* ssl)
 {
     h2_session->client_socket = client_socket;
     h2_session->ssl = ssl;
     h2_session->handshake_complete = false;
 
     // Setup callbacks
-    nghttp2_session_callbacks *callbacks;
+    nghttp2_session_callbacks* callbacks;
     nghttp2_session_callbacks_new(&callbacks);
 
     nghttp2_session_callbacks_set_send_callback(callbacks, send_callback);
@@ -456,7 +465,8 @@ int http2_session_init(http2_session_t *h2_session, int client_socket, SSL *ssl)
     // Send initial SETTINGS frame
     nghttp2_settings_entry settings[] = {
         {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100},
-        {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 65535}};
+        {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 65535}
+    };
 
     rv = nghttp2_submit_settings(h2_session->session, NGHTTP2_FLAG_NONE,
                                  settings, sizeof(settings) / sizeof(settings[0]));
@@ -474,7 +484,7 @@ int http2_session_init(http2_session_t *h2_session, int client_socket, SSL *ssl)
 }
 
 // Cleanup HTTP/2 session
-void http2_session_cleanup(http2_session_t *h2_session)
+void http2_session_cleanup(http2_session_t* h2_session)
 {
     if (h2_session->session)
     {
@@ -484,18 +494,19 @@ void http2_session_cleanup(http2_session_t *h2_session)
 }
 
 // Send HTTP/2 response
-int http2_send_response(http2_session_t *h2_session, int32_t stream_id,
-                        const char *data, size_t len, bool end_stream)
+int http2_send_response(http2_session_t* h2_session, int32_t stream_id,
+                        const char* data, size_t len, bool end_stream)
 {
-    (void)data;       // Unused in current implementation
-    (void)len;        // Unused in current implementation
+    (void)data; // Unused in current implementation
+    (void)len; // Unused in current implementation
     (void)end_stream; // Unused in current implementation
 
     // Send response headers
     nghttp2_nv hdrs[] = {
-        {(uint8_t *)":status", (uint8_t *)"200", 7, 3, NGHTTP2_NV_FLAG_NONE},
-        {(uint8_t *)"content-type", (uint8_t *)"text/html", 12, 9, NGHTTP2_NV_FLAG_NONE},
-        {(uint8_t *)"server", (uint8_t *)"Carbon/2.0", 6, 10, NGHTTP2_NV_FLAG_NONE}};
+        {(uint8_t*)":status", (uint8_t*)"200", 7, 3, NGHTTP2_NV_FLAG_NONE},
+        {(uint8_t*)"content-type", (uint8_t*)"text/html", 12, 9, NGHTTP2_NV_FLAG_NONE},
+        {(uint8_t*)"server", (uint8_t*)"Carbon/2.0", 6, 10, NGHTTP2_NV_FLAG_NONE}
+    };
 
     int rv = nghttp2_submit_response(h2_session->session, stream_id, hdrs, 3, NULL);
     if (rv != 0)
@@ -507,15 +518,16 @@ int http2_send_response(http2_session_t *h2_session, int32_t stream_id,
 }
 
 // Send HTTP/2 error response
-int http2_send_error(http2_session_t *h2_session, int32_t stream_id,
-                     int status_code, const char *message)
+int http2_send_error(http2_session_t* h2_session, int32_t stream_id,
+                     int status_code, const char* message)
 {
     char status_str[4];
     snprintf(status_str, sizeof(status_str), "%d", status_code);
 
     nghttp2_nv hdrs[] = {
-        {(uint8_t *)":status", (uint8_t *)status_str, 7, strlen(status_str), NGHTTP2_NV_FLAG_NONE},
-        {(uint8_t *)"content-type", (uint8_t *)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}};
+        {(uint8_t*)":status", (uint8_t*)status_str, 7, strlen(status_str), NGHTTP2_NV_FLAG_NONE},
+        {(uint8_t*)"content-type", (uint8_t*)"text/plain", 12, 10, NGHTTP2_NV_FLAG_NONE}
+    };
 
     int rv = nghttp2_submit_response(h2_session->session, stream_id, hdrs, 2, NULL);
     if (rv != 0)
@@ -526,7 +538,7 @@ int http2_send_error(http2_session_t *h2_session, int32_t stream_id,
     if (message)
     {
         nghttp2_data_provider prd;
-        prd.source.ptr = (void *)message;
+        prd.source.ptr = (void*)message;
         prd.read_callback = NULL;
 
         nghttp2_submit_data(h2_session->session, NGHTTP2_FLAG_END_STREAM,
@@ -537,7 +549,7 @@ int http2_send_error(http2_session_t *h2_session, int32_t stream_id,
 }
 
 // Handle HTTP/2 connection
-int http2_handle_connection(http2_session_t *h2_session)
+int http2_handle_connection(http2_session_t* h2_session)
 {
     // Receive and process frames first
     int rv = nghttp2_session_recv(h2_session->session);

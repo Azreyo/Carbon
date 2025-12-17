@@ -11,7 +11,6 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <errno.h>
-#include <libgen.h>
 #include <signal.h>
 #include <sys/epoll.h>
 #include <netinet/tcp.h>
@@ -19,7 +18,6 @@
 #include <ctype.h>
 #include <time.h>
 #include <sys/sendfile.h>
-#include <sys/time.h>
 #include <sched.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
@@ -72,7 +70,7 @@ static int MAX_REQUESTS_DYNAMIC = 500; // Will be calculated dynamically
 
 #define SOCKET_SEND_BUFFER_SIZE (512 * 1024) // 512KB for faster throughput
 #define SOCKET_RECV_BUFFER_SIZE (512 * 1024) // 512KB
-#define SOCKET_BACKLOG 256                   
+#define SOCKET_BACKLOG 256
 #define EPOLL_TIMEOUT 50                     // 50ms timeout for faster polling
 
 #define MAX_THREAD_POOL_SIZE 64
@@ -89,14 +87,14 @@ typedef struct
     int cpu_core;
 } ThreadInfo;
 
-ThreadInfo *thread_pool;
+ThreadInfo* thread_pool;
 int thread_pool_size = 0;
 pthread_mutex_t thread_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t thread_pool_cond = PTHREAD_COND_INITIALIZER;
 
 // Worker thread queue
 task_queue_t worker_queue;
-pthread_t *worker_threads = NULL;
+pthread_t* worker_threads = NULL;
 int num_worker_threads = 0;
 volatile int workers_running = 1;
 
@@ -109,55 +107,55 @@ typedef struct
 
 typedef struct
 {
-    char *path;
-    char *data;
+    char* path;
+    char* data;
     size_t size;
     time_t last_access;
-    char *mime_type;
+    char* mime_type;
 } CacheEntry;
 
-CacheEntry *file_cache = NULL;
+CacheEntry* file_cache = NULL;
 int cache_size = 0;
 pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 ServerConfig config;
 char server_log[MAX_LOG_SIZE];
 pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_t *client_threads = NULL;
+pthread_t* client_threads = NULL;
 int num_client_threads = 0;
 pthread_mutex_t thread_count_mutex = PTHREAD_MUTEX_INITIALIZER;
-SSL_CTX *ssl_ctx = NULL;
+SSL_CTX* ssl_ctx = NULL;
 volatile sig_atomic_t server_running = 1;
 int http_socket = -1;
 int https_socket = -1;
 int epoll_fd;
 
-RateLimit *rate_limits = NULL;
+RateLimit* rate_limits = NULL;
 int rate_limit_count = 0;
 pthread_mutex_t rate_limit_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void cleanup_thread_pool(void);
-void *handle_http_client(void *arg);
-void *handle_https_client(void *arg);
-void *worker_thread(void *arg);
+void* handle_http_client(void* arg);
+void* handle_https_client(void* arg);
+void* worker_thread(void* arg);
 void set_cpu_affinity(int thread_id);
 void optimize_socket_for_send(int socket_fd);
-void log_event(const char *message);
+void log_event(const char* message);
 void initialize_openssl();
 void cleanup_openssl();
-SSL_CTX *create_ssl_context();
-void configure_ssl_context(SSL_CTX *ctx);
-void *start_http_server(void *arg);
-void *start_https_server(void *arg);
+SSL_CTX* create_ssl_context();
+void configure_ssl_context(SSL_CTX * ctx);
+void* start_http_server(void* arg);
+void* start_https_server(void* arg);
 void shutdown_server();
-int parse_request_line(char *request_buffer, char *method, char *url, char *protocol);
-char *get_mime_type(const char *filepath);
-char *sanitize_url(const char *url);
-int check_rate_limit(const char *ip);
-int should_compress(const char *mime_type);
-unsigned char *gzip_compress(const unsigned char *data, size_t size, size_t *compressed_size);
-char *stristr(const char *haystack, const char *needle);
-char *extract_header_value(const char *request, const char *header_name);
+int parse_request_line(char* request_buffer, char* method, char* url, char* protocol);
+char* get_mime_type(const char* filepath);
+char* sanitize_url(const char* url);
+int check_rate_limit(const char* ip);
+int should_compress(const char* mime_type);
+unsigned char* gzip_compress(const unsigned char* data, size_t size, size_t* compressed_size);
+char* stristr(const char* haystack, const char* needle);
+char* extract_header_value(const char* request, const char* header_name);
 int calculate_dynamic_rate_limit(void);
 
 void initialize_openssl()
@@ -183,10 +181,10 @@ void cleanup_openssl()
 #endif
 }
 
-SSL_CTX *create_ssl_context()
+SSL_CTX* create_ssl_context()
 {
-    const SSL_METHOD *method = TLS_server_method();
-    SSL_CTX *ctx = SSL_CTX_new(method);
+    const SSL_METHOD* method = TLS_server_method();
+    SSL_CTX* ctx = SSL_CTX_new(method);
     if (!ctx)
     {
         perror(BOLD RED "Unable to create SSL context" RESET);
@@ -195,7 +193,7 @@ SSL_CTX *create_ssl_context()
     return ctx;
 }
 
-void configure_ssl_context(SSL_CTX *ctx)
+void configure_ssl_context(SSL_CTX* ctx)
 {
     if (SSL_CTX_use_certificate_file(ctx, config.ssl_cert_path, SSL_FILETYPE_PEM) <= 0)
     {
@@ -207,7 +205,7 @@ void configure_ssl_context(SSL_CTX *ctx)
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
-    
+
     // Verify private key matches certificate
     if (SSL_CTX_check_private_key(ctx) != 1)
     {
@@ -215,44 +213,44 @@ void configure_ssl_context(SSL_CTX *ctx)
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
-    
+
     // Security hardening - enforce TLS 1.2 minimum (TLS 1.3 preferred)
     SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
-    
+
     // Disable all insecure protocols and options
-    SSL_CTX_set_options(ctx, 
-        SSL_OP_NO_SSLv2 |           // Disable SSLv2 (CVE-2016-0800)
-        SSL_OP_NO_SSLv3 |           // Disable SSLv3 (POODLE - CVE-2014-3566)
-        SSL_OP_NO_TLSv1 |           // Disable TLS 1.0 (BEAST - CVE-2011-3389)
-        SSL_OP_NO_TLSv1_1 |         // Disable TLS 1.1 (deprecated)
-        SSL_OP_NO_COMPRESSION |     // Disable compression (CRIME - CVE-2012-4929)
-        SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION |
-        SSL_OP_NO_TICKET |          // Disable session tickets for forward secrecy
-        SSL_OP_CIPHER_SERVER_PREFERENCE |  // Server chooses cipher order
-        SSL_OP_SINGLE_DH_USE |      // Generate new DH key for each handshake
-        SSL_OP_SINGLE_ECDH_USE      // Generate new ECDH key for each handshake
+    SSL_CTX_set_options(ctx,
+                        SSL_OP_NO_SSLv2 | // Disable SSLv2 (CVE-2016-0800)
+                        SSL_OP_NO_SSLv3 | // Disable SSLv3 (POODLE - CVE-2014-3566)
+                        SSL_OP_NO_TLSv1 | // Disable TLS 1.0 (BEAST - CVE-2011-3389)
+                        SSL_OP_NO_TLSv1_1 | // Disable TLS 1.1 (deprecated)
+                        SSL_OP_NO_COMPRESSION | // Disable compression (CRIME - CVE-2012-4929)
+                        SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION |
+                        SSL_OP_NO_TICKET | // Disable session tickets for forward secrecy
+                        SSL_OP_CIPHER_SERVER_PREFERENCE | // Server chooses cipher order
+                        SSL_OP_SINGLE_DH_USE | // Generate new DH key for each handshake
+                        SSL_OP_SINGLE_ECDH_USE // Generate new ECDH key for each handshake
     );
-    
+
     // Use secure ciphers only - TLS 1.3 and strong TLS 1.2 AEAD ciphers
     // Prioritize ChaCha20 for mobile devices, AES-GCM for servers with AES-NI
-    const char *cipher_list = 
+    const char* cipher_list =
         "TLS_AES_256_GCM_SHA384:"
         "TLS_CHACHA20_POLY1305_SHA256:"
-        "TLS_AES_128_GCM_SHA256:"                    // TLS 1.3 ciphers
+        "TLS_AES_128_GCM_SHA256:" // TLS 1.3 ciphers
         "ECDHE-ECDSA-AES256-GCM-SHA384:"
         "ECDHE-RSA-AES256-GCM-SHA384:"
         "ECDHE-ECDSA-CHACHA20-POLY1305:"
         "ECDHE-RSA-CHACHA20-POLY1305:"
         "ECDHE-ECDSA-AES128-GCM-SHA256:"
-        "ECDHE-RSA-AES128-GCM-SHA256:"               // TLS 1.2 AEAD ciphers
+        "ECDHE-RSA-AES128-GCM-SHA256:" // TLS 1.2 AEAD ciphers
         "!aNULL:!eNULL:!EXPORT:!DES:!3DES:!RC4:!MD5:!PSK:!SRP:!DSS:!CBC";
-    
+
     if (SSL_CTX_set_cipher_list(ctx, cipher_list) != 1)
     {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
-    
+
     // Set ECDH curve for key exchange (prefer X25519, fall back to P-256)
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L
     if (SSL_CTX_set1_groups_list(ctx, "X25519:P-256:P-384") != 1)
@@ -260,7 +258,7 @@ void configure_ssl_context(SSL_CTX *ctx)
         LOG_WARN(LOG_CAT_SSL, "Failed to set ECDH groups, using defaults");
     }
 #endif
-    
+
     // Enable OCSP stapling if available
 #ifdef SSL_CTX_set_tlsext_status_type
     SSL_CTX_set_tlsext_status_type(ctx, TLSEXT_STATUSTYPE_ocsp);
@@ -272,7 +270,7 @@ void configure_ssl_context(SSL_CTX *ctx)
         SSL_CTX_set_alpn_select_cb(ctx, alpn_select_proto_cb, NULL);
         LOG_INFO(LOG_CAT_SSL, "HTTP/2 ALPN enabled");
     }
-    
+
     LOG_INFO(LOG_CAT_SSL, "SSL/TLS context configured with secure settings");
 }
 
@@ -281,7 +279,7 @@ void optimize_socket_for_send(int socket_fd)
     int flag = 1;
     // Enable TCP_NODELAY to disable Nagle's algorithm for low latency
     setsockopt(socket_fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-    
+
 #ifdef TCP_QUICKACK
     // Enable quick ACK for faster response
     setsockopt(socket_fd, IPPROTO_TCP, TCP_QUICKACK, &flag, sizeof(flag));
@@ -335,7 +333,7 @@ void set_socket_options(int socket_fd)
     setsockopt(socket_fd, SOL_SOCKET, SO_RCVBUF, &recvbuf, sizeof(recvbuf));
 }
 
-void *start_http_server(void *arg)
+void* start_http_server(void* arg)
 {
     (void)arg;
     http_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -352,7 +350,7 @@ void *start_http_server(void *arg)
     http_address.sin_addr.s_addr = INADDR_ANY;
     http_address.sin_port = htons(config.port);
 
-    if (bind(http_socket, (struct sockaddr *)&http_address, sizeof(http_address)) < 0)
+    if (bind(http_socket, (struct sockaddr*)&http_address, sizeof(http_address)) < 0)
     {
         perror(BOLD RED "Error binding HTTP socket" RESET);
         close(http_socket);
@@ -394,7 +392,8 @@ void *start_http_server(void *arg)
         if (nfds == -1)
         {
             if (errno != EINTR)
-            { // Ignore interrupts for shutdown
+            {
+                // Ignore interrupts for shutdown
                 perror("epoll_wait");
                 break; // Exit loop on error
             }
@@ -408,7 +407,7 @@ void *start_http_server(void *arg)
                 // New connection
                 struct sockaddr_in client_addr;
                 socklen_t addr_size = sizeof(client_addr);
-                int client_socket = accept(http_socket, (struct sockaddr *)&client_addr, &addr_size);
+                int client_socket = accept(http_socket, (struct sockaddr*)&client_addr, &addr_size);
                 if (client_socket < 0)
                 {
                     perror("accept");
@@ -423,7 +422,7 @@ void *start_http_server(void *arg)
                 else
                 {
                     log_event("Worker queue full, rejecting connection.");
-                    const char *overload_response = "HTTP/1.1 503 Service Unavailable\r\n\r\nServer overloaded";
+                    const char* overload_response = "HTTP/1.1 503 Service Unavailable\r\n\r\nServer overloaded";
                     send(client_socket, overload_response, strlen(overload_response), 0);
                     close(client_socket);
                 }
@@ -438,7 +437,7 @@ void *start_http_server(void *arg)
     pthread_exit(NULL);
 }
 
-void *start_https_server(void *arg)
+void* start_https_server(void* arg)
 {
     (void)arg;
     https_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -456,7 +455,7 @@ void *start_https_server(void *arg)
     https_address.sin_addr.s_addr = INADDR_ANY;
     https_address.sin_port = htons(443);
 
-    if (bind(https_socket, (struct sockaddr *)&https_address, sizeof(https_address)) < 0)
+    if (bind(https_socket, (struct sockaddr*)&https_address, sizeof(https_address)) < 0)
     {
         perror(BOLD RED "Error binding HTTPS socket" RESET);
         close(https_socket);
@@ -494,7 +493,7 @@ void *start_https_server(void *arg)
         else
         {
             log_event("Worker queue full (HTTPS), rejecting connection.");
-            const char *overload_response = "HTTP/1.1 503 Service Unavailable\r\n\r\nServer overloaded";
+            const char* overload_response = "HTTP/1.1 503 Service Unavailable\r\n\r\nServer overloaded";
             send(client_socket, overload_response, strlen(overload_response), 0);
             close(client_socket);
         }
@@ -505,14 +504,14 @@ void *start_https_server(void *arg)
 }
 
 // Check if request is a WebSocket upgrade request
-static int is_websocket_upgrade(const char *request)
+static int is_websocket_upgrade(const char* request)
 {
     // Make a lowercase copy for case-insensitive comparison
-    char *request_lower = strdup(request);
+    char* request_lower = strdup(request);
     if (!request_lower)
         return 0;
 
-    for (char *p = request_lower; *p; p++)
+    for (char* p = request_lower; *p; p++)
     {
         *p = tolower((unsigned char)*p);
     }
@@ -520,25 +519,21 @@ static int is_websocket_upgrade(const char *request)
     // Check for "upgrade: websocket" and "connection:" containing "upgrade"
     int has_upgrade = strstr(request_lower, "upgrade: websocket") != NULL;
     int has_connection = strstr(request_lower, "connection:") != NULL &&
-                         strstr(request_lower, "upgrade") != NULL;
+        strstr(request_lower, "upgrade") != NULL;
 
     free(request_lower);
     return has_upgrade && has_connection;
 }
 
 // Handle WebSocket connection
-static void *handle_websocket(void *arg)
+static void* handle_websocket(void* arg)
 {
-    ws_connection_t *conn = (ws_connection_t *)arg;
-    
-    if (!conn)
-    {
-        pthread_exit(NULL);
-    }
+    ws_connection_t* conn = (ws_connection_t*)arg;
+
 
     // Remove socket timeout for WebSocket (connections should stay open)
     struct timeval ws_timeout;
-    ws_timeout.tv_sec = 0;  // No timeout - wait indefinitely
+    ws_timeout.tv_sec = 0; // No timeout - wait indefinitely
     ws_timeout.tv_usec = 0;
     setsockopt(conn->socket_fd, SOL_SOCKET, SO_RCVTIMEO, &ws_timeout, sizeof(ws_timeout));
 
@@ -570,7 +565,7 @@ static void *handle_websocket(void *arg)
         }
 
         ws_frame_header_t header;
-        uint8_t *payload = NULL;
+        uint8_t* payload = NULL;
         int parsed = ws_parse_frame(buffer, bytes_received, &header, &payload);
 
         if (parsed < 0)
@@ -627,9 +622,9 @@ static void *handle_websocket(void *arg)
     pthread_exit(NULL);
 }
 
-void *handle_http_client(void *arg)
+void* handle_http_client(void* arg)
 {
-    int client_socket = *((int *)arg);
+    int client_socket = *((int*)arg);
     free(arg);
 
     if (!server_running)
@@ -656,415 +651,415 @@ void *handle_http_client(void *arg)
         memset(request_buffer, 0, MAX_REQUEST_SIZE);
         ssize_t bytes_received = recv(client_socket, request_buffer, MAX_REQUEST_SIZE - 1, 0);
 
-    if (bytes_received > 0)
-    {
-        request_buffer[bytes_received] = '\0';
-        log_event("Received HTTP request");
-
-        // Check if client accepts gzip BEFORE parsing (parse modifies buffer!)
-        int accepts_gzip = (stristr(request_buffer, "accept-encoding:") && 
-                           stristr(request_buffer, "gzip")) ? 1 : 0;
-
-        // Check for WebSocket upgrade request
-        if (config.enable_websocket && is_websocket_upgrade(request_buffer))
+        if (bytes_received > 0)
         {
-            log_event("WebSocket upgrade request detected");
+            request_buffer[bytes_received] = '\0';
+            log_event("Received HTTP request");
 
-            char response[512];
-            if (ws_handle_handshake(client_socket, request_buffer, response, sizeof(response)) == 0)
+            // Check if client accepts gzip BEFORE parsing (parse modifies buffer!)
+            int accepts_gzip = (stristr(request_buffer, "accept-encoding:") &&
+                                   stristr(request_buffer, "gzip"))
+                                   ? 1
+                                   : 0;
+
+            // Check for WebSocket upgrade request
+            if (config.enable_websocket && is_websocket_upgrade(request_buffer))
             {
-                send(client_socket, response, strlen(response), 0);
+                log_event("WebSocket upgrade request detected");
 
-                // Create WebSocket connection context
-                ws_connection_t *ws_conn = malloc(sizeof(ws_connection_t));
-                if (ws_conn)
+                char response[512];
+                if (ws_handle_handshake(client_socket, request_buffer, response, sizeof(response)) == 0)
                 {
-                    ws_conn->socket_fd = client_socket;
-                    ws_conn->ssl = NULL;
-                    ws_conn->is_ssl = false;
-                    ws_conn->handshake_complete = true;
+                    send(client_socket, response, strlen(response), 0);
 
-                    // Handle WebSocket connection in this thread
-                    handle_websocket(ws_conn);
+                    // Create WebSocket connection context
+                    ws_connection_t* ws_conn = malloc(sizeof(ws_connection_t));
+                    if (ws_conn)
+                    {
+                        ws_conn->socket_fd = client_socket;
+                        ws_conn->ssl = NULL;
+                        ws_conn->is_ssl = false;
+                        ws_conn->handshake_complete = true;
+
+                        // Handle WebSocket connection in this thread
+                        handle_websocket(ws_conn);
+                    }
+                    else
+                    {
+                        close(client_socket);
+                    }
                 }
                 else
                 {
+                    log_event("WebSocket handshake failed");
                     close(client_socket);
                 }
+                pthread_exit(NULL);
             }
-            else
+
+            char method[8], url[256], protocol[16];
+            if (parse_request_line(request_buffer, method, url, protocol) != 0)
             {
-                log_event("WebSocket handshake failed");
+                log_event("Invalid request line.");
+                const char* bad_request_response = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid Request";
+                send(client_socket, bad_request_response, strlen(bad_request_response), 0);
                 close(client_socket);
+                pthread_exit(NULL);
             }
-            pthread_exit(NULL);
-        }
 
-        char method[8], url[256], protocol[16];
-        if (parse_request_line(request_buffer, method, url, protocol) != 0)
-        {
-            log_event("Invalid request line.");
-            const char *bad_request_response = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid Request";
-            send(client_socket, bad_request_response, strlen(bad_request_response), 0);
-            close(client_socket);
-            pthread_exit(NULL);
-        }
-
-        if (config.use_https)
-        { // Check if HTTPS is enabled
-            size_t needed = snprintf(NULL, 0,
-                                     "HTTP/1.1 301 Moved Permanently\r\n"
-                                     "Location: https://%s%s\r\n\r\n",
-                                     config.server_name, url) +
-                            1;
-
-            char *redirect_response = malloc(needed);
-            if (redirect_response)
+            if (config.use_https)
             {
-                snprintf(redirect_response, needed,
-                         "HTTP/1.1 301 Moved Permanently\r\n"
-                         "Location: https://%s%s\r\n\r\n",
-                         config.server_name, url);
-                send(client_socket, redirect_response, strlen(redirect_response), 0);
-                free(redirect_response);
-            }
-            log_event("Redirecting to HTTPS");
-            close(client_socket);
-            return NULL;
-        }
+                // Check if HTTPS is enabled
+                size_t needed = snprintf(NULL, 0,
+                                         "HTTP/1.1 301 Moved Permanently\r\n"
+                                         "Location: https://%s%s\r\n\r\n",
+                                         config.server_name, url) +
+                    1;
 
-        char *sanitized_url = sanitize_url(url);
-        if (!sanitized_url)
-        {
-            log_event("Blocked malicious URL");
-            const char *forbidden_response = "HTTP/1.1 403 Forbidden\r\n\r\nAccess Denied";
-            send(client_socket, forbidden_response, strlen(forbidden_response), 0);
-            close(client_socket);
-            pthread_exit(NULL);
-        }
-
-        char client_ip[INET_ADDRSTRLEN];
-        struct sockaddr_in addr;
-        socklen_t addr_len = sizeof(addr);
-        getpeername(client_socket, (struct sockaddr *)&addr, &addr_len);
-        inet_ntop(AF_INET, &addr.sin_addr, client_ip, sizeof(client_ip));
-
-        if (!check_rate_limit(client_ip))
-        {
-            log_event("Rate limit exceeded for IP:");
-            log_event(client_ip);
-            const char *rate_limit_response = "HTTP/1.1 429 Too Many Requests\r\n\r\nRate limit exceeded";
-            send(client_socket, rate_limit_response, strlen(rate_limit_response), 0);
-            close(client_socket);
-            return NULL;
-        }
-
-        char filepath[512];
-        int written = snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
-                 (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
-        free(sanitized_url);
-        
-        if (written < 0 || written >= (int)sizeof(filepath))
-        {
-            log_event("Path too long, potential buffer overflow attempt");
-            const char *error_response = "HTTP/1.1 414 URI Too Long\r\n\r\n";
-            send(client_socket, error_response, strlen(error_response), 0);
-            close(client_socket);
-            pthread_exit(NULL);
-        }
-
-        // Get MIME type
-        char *mime_type = get_mime_type(filepath);
-
-        // Check for conditional request headers
-        char *if_none_match = extract_header_value(request_buffer, "If-None-Match");
-        char *if_modified_since = extract_header_value(request_buffer, "If-Modified-Since");
-
-        // Try cache first
-        mmap_cache_entry_t *cached = get_cached_file(filepath);
-
-        if (cached)
-        {
-            // Generate current ETag
-            char current_etag[128];
-            snprintf(current_etag, sizeof(current_etag), "\"%zu-%ld\"", 
-                     cached->size, cached->last_access);
-            
-            // Check If-None-Match (ETag validation)
-            if (if_none_match)
-            {
-                // Strip quotes if present in the header value
-                char *etag_value = if_none_match;
-                if (*etag_value == '"')
-                    etag_value++;
-                char *end_quote = strchr(etag_value, '"');
-                if (end_quote)
-                    *end_quote = '\0';
-                
-                // Compare ETags (without quotes in stored ETag)
-                char stored_etag[128];
-                snprintf(stored_etag, sizeof(stored_etag), "%zu-%ld", 
-                         cached->size, cached->last_access);
-                
-                if (strstr(if_none_match, stored_etag))
+                char* redirect_response = malloc(needed);
+                if (redirect_response)
                 {
-                    // ETag matches - return 304 Not Modified
-                    char response_304[512];
-                    int header_len = snprintf(response_304, sizeof(response_304),
-                                              "HTTP/1.1 304 Not Modified\\r\\n"
-                                              "ETag: %s\\r\\n"
-                                              "Cache-Control: public, max-age=86400, immutable\\r\\n"
-                                              "Keep-Alive: timeout=5, max=100\\r\\n"
-                                              "Connection: Keep-Alive\\r\\n"
-                                              "\\r\\n",
-                                              current_etag);
-                    send(client_socket, response_304, header_len, 0);
-                    release_cached_file(cached);
-                    free(mime_type);
-                    free(if_none_match);
-                    if (if_modified_since)
-                        free(if_modified_since);
-                    log_event("Served 304 Not Modified (ETag match)");
-                    goto done_serving;
+                    snprintf(redirect_response, needed,
+                             "HTTP/1.1 301 Moved Permanently\r\n"
+                             "Location: https://%s%s\r\n\r\n",
+                             config.server_name, url);
+                    send(client_socket, redirect_response, strlen(redirect_response), 0);
+                    free(redirect_response);
                 }
+                log_event("Redirecting to HTTPS");
+                close(client_socket);
+                return NULL;
             }
-            
-            free(if_none_match);
-            free(if_modified_since);
-            
-            // Check if we should compress
-            unsigned char *compressed_data = NULL;
-            size_t compressed_size = 0;
-            int using_compression = 0;
-            int needs_free = 0;
-            
-            if (accepts_gzip && should_compress(cached->mime_type) && cached->size > 1024)
+
+            char* sanitized_url = sanitize_url(url);
+            if (!sanitized_url)
             {
-                // Check if we have cached compressed version
-                if (cached->compressed_data && cached->compressed_size > 0)
+                log_event("Blocked malicious URL");
+                const char* forbidden_response = "HTTP/1.1 403 Forbidden\r\n\r\nAccess Denied";
+                send(client_socket, forbidden_response, strlen(forbidden_response), 0);
+                close(client_socket);
+                pthread_exit(NULL);
+            }
+
+            char client_ip[INET_ADDRSTRLEN];
+            struct sockaddr_in addr;
+            socklen_t addr_len = sizeof(addr);
+            getpeername(client_socket, (struct sockaddr*)&addr, &addr_len);
+            inet_ntop(AF_INET, &addr.sin_addr, client_ip, sizeof(client_ip));
+
+            if (!check_rate_limit(client_ip))
+            {
+                log_event("Rate limit exceeded for IP:");
+                log_event(client_ip);
+                const char* rate_limit_response = "HTTP/1.1 429 Too Many Requests\r\n\r\nRate limit exceeded";
+                send(client_socket, rate_limit_response, strlen(rate_limit_response), 0);
+                close(client_socket);
+                return NULL;
+            }
+
+            char filepath[512];
+            int written = snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
+                                   (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
+            free(sanitized_url);
+
+            if (written < 0 || written >= (int)sizeof(filepath))
+            {
+                log_event("Path too long, potential buffer overflow attempt");
+                const char* error_response = "HTTP/1.1 414 URI Too Long\r\n\r\n";
+                send(client_socket, error_response, strlen(error_response), 0);
+                close(client_socket);
+                pthread_exit(NULL);
+            }
+
+            // Get MIME type
+            char* mime_type = get_mime_type(filepath);
+
+            // Check for conditional request headers
+            char* if_none_match = extract_header_value(request_buffer, "If-None-Match");
+            char* if_modified_since = extract_header_value(request_buffer, "If-Modified-Since");
+
+            // Try cache first
+            mmap_cache_entry_t* cached = get_cached_file(filepath);
+
+            if (cached)
+            {
+                // Generate current ETag
+                char current_etag[128];
+                snprintf(current_etag, sizeof(current_etag), "\"%zu-%ld\"",
+                         cached->size, cached->last_access);
+
+                // Check If-None-Match (ETag validation)
+                if (if_none_match)
                 {
-                    // Use pre-compressed cached data
-                    compressed_data = cached->compressed_data;
-                    compressed_size = cached->compressed_size;
-                    using_compression = 1;
-                    needs_free = 0;
+                    // Strip quotes if present in the header value
+                    char* etag_value = if_none_match;
+                    if (*etag_value == '"')
+                        etag_value++;
+                    char* end_quote = strchr(etag_value, '"');
+                    if (end_quote)
+                        *end_quote = '\0';
+
+                    // Compare ETags (without quotes in stored ETag)
+                    char stored_etag[128];
+                    snprintf(stored_etag, sizeof(stored_etag), "%zu-%ld",
+                             cached->size, cached->last_access);
+
+                    if (strstr(if_none_match, stored_etag))
+                    {
+                        // ETag matches - return 304 Not Modified
+                        char response_304[512];
+                        int header_len = snprintf(response_304, sizeof(response_304),
+                                                  "HTTP/1.1 304 Not Modified\\r\\n"
+                                                  "ETag: %s\\r\\n"
+                                                  "Cache-Control: public, max-age=86400, immutable\\r\\n"
+                                                  "Keep-Alive: timeout=5, max=100\\r\\n"
+                                                  "Connection: Keep-Alive\\r\\n"
+                                                  "\\r\\n",
+                                                  current_etag);
+                        send(client_socket, response_304, header_len, 0);
+                        release_cached_file(cached);
+                        free(mime_type);
+                        free(if_none_match);
+                        if (if_modified_since)
+                            free(if_modified_since);
+                        log_event("Served 304 Not Modified (ETag match)");
+                        goto done_serving;
+                    }
+                }
+
+                free(if_none_match);
+                free(if_modified_since);
+
+                // Check if we should compress
+                unsigned char* compressed_data = NULL;
+                size_t compressed_size = 0;
+                int using_compression = 0;
+                int needs_free = 0;
+
+                if (accepts_gzip && should_compress(cached->mime_type) && cached->size > 1024)
+                {
+                    // Check if we have cached compressed version
+                    if (cached->compressed_data && cached->compressed_size > 0)
+                    {
+                        // Use pre-compressed cached data
+                        compressed_data = cached->compressed_data;
+                        compressed_size = cached->compressed_size;
+                        using_compression = 1;
+                        needs_free = 0;
+                    }
+                    else
+                    {
+                        // Compress on-the-fly and cache it
+                        compressed_data = gzip_compress((unsigned char*)cached->mmap_data, cached->size,
+                                                        &compressed_size);
+                        if (compressed_data && compressed_size < cached->size * 0.9)
+                        {
+                            using_compression = 1;
+                            needs_free = 1;
+
+                            // Cache the compressed version for future requests
+                            cached->compressed_data = malloc(compressed_size);
+                            if (cached->compressed_data)
+                            {
+                                memcpy(cached->compressed_data, compressed_data, compressed_size);
+                                cached->compressed_size = compressed_size;
+                                needs_free = 0;
+                            }
+                        }
+                        else if (compressed_data)
+                        {
+                            free(compressed_data);
+                            compressed_data = NULL;
+                        }
+                    }
+                }
+
+                // Serve from cache with optional compression
+                char response_header[2048];
+
+                // Format Last-Modified time (RFC 7231 format)
+                char last_modified[64];
+                struct tm* tm_info = gmtime(&cached->last_access);
+                strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+
+                int header_len = snprintf(response_header, sizeof(response_header),
+                                          "HTTP/1.1 200 OK\r\n"
+                                          "Content-Length: %zu\r\n"
+                                          "Content-Type: %s\r\n"
+                                          "Cache-Control: public, max-age=86400, immutable\r\n"
+                                          "ETag: \"%zu-%ld\"\r\n"
+                                          "Last-Modified: %s\r\n"
+                                          "%s"
+                                          "%s"
+                                          "Keep-Alive: timeout=5, max=100\r\n"
+                                          "Connection: Keep-Alive\r\n"
+                                          "\r\n",
+                                          using_compression ? compressed_size : cached->size,
+                                          cached->mime_type,
+                                          cached->size,
+                                          cached->last_access,
+                                          last_modified,
+                                          using_compression ? "Content-Encoding: gzip\r\n" : "",
+                                          SECURITY_HEADERS);
+
+                void* data_to_send = using_compression ? compressed_data : cached->mmap_data;
+                size_t size_to_send = using_compression ? compressed_size : cached->size;
+
+                // Use writev to send header + content in one syscall (for small files)
+                if (size_to_send < 65536) // Files < 64KB
+                {
+                    struct iovec iov[2];
+                    iov[0].iov_base = response_header;
+                    iov[0].iov_len = header_len;
+                    iov[1].iov_base = data_to_send;
+                    iov[1].iov_len = size_to_send;
+                    ssize_t written = writev(client_socket, iov, 2);
+                    (void)written;
                 }
                 else
                 {
-                    // Compress on-the-fly and cache it
-                    compressed_data = gzip_compress((unsigned char *)cached->mmap_data, cached->size, &compressed_size);
-                    if (compressed_data && compressed_size < cached->size * 0.9)
+                    send(client_socket, response_header, header_len, 0);
+
+                    size_t total_sent = 0;
+                    while (total_sent < size_to_send)
                     {
-                        using_compression = 1;
-                        needs_free = 1;
-                        
-                        // Cache the compressed version for future requests
-                        cached->compressed_data = malloc(compressed_size);
-                        if (cached->compressed_data)
-                        {
-                            memcpy(cached->compressed_data, compressed_data, compressed_size);
-                            cached->compressed_size = compressed_size;
-                            needs_free = 0;
-                        }
-                    }
-                    else if (compressed_data)
-                    {
-                        free(compressed_data);
-                        compressed_data = NULL;
+                        ssize_t sent = send(client_socket, (char*)data_to_send + total_sent,
+                                            size_to_send - total_sent, 0);
+                        if (sent <= 0)
+                            break;
+                        total_sent += sent;
                     }
                 }
+
+                if (needs_free && compressed_data)
+                    free(compressed_data);
+                release_cached_file(cached);
+                free(mime_type);
+                log_event(using_compression ? "Served file from cache (gzip)" : "Served file from cache");
+                goto done_serving;
             }
 
-            // Serve from cache with optional compression
-            char response_header[2048];
-            
-            // Format Last-Modified time (RFC 7231 format)
-            char last_modified[64];
-            struct tm *tm_info = gmtime(&cached->last_access);
-            strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
-            
-            int header_len = snprintf(response_header, sizeof(response_header),
-                                      "HTTP/1.1 200 OK\r\n"
-                                      "Content-Length: %zu\r\n"
-                                      "Content-Type: %s\r\n"
-                                      "Cache-Control: public, max-age=86400, immutable\r\n"
-                                      "ETag: \"%zu-%ld\"\r\n"
-                                      "Last-Modified: %s\r\n"
-                                      "%s"
-                                      "%s"
-                                      "Keep-Alive: timeout=5, max=100\r\n"
-                                      "Connection: Keep-Alive\r\n"
-                                      "\r\n",
-                                      using_compression ? compressed_size : cached->size,
-                                      cached->mime_type,
-                                      cached->size,
-                                      cached->last_access,
-                                      last_modified,
-                                      using_compression ? "Content-Encoding: gzip\r\n" : "",
-                                      SECURITY_HEADERS);
-
-            void *data_to_send = using_compression ? compressed_data : cached->mmap_data;
-            size_t size_to_send = using_compression ? compressed_size : cached->size;
-
-            // Use writev to send header + content in one syscall (for small files)
-            if (size_to_send < 65536) // Files < 64KB
+            int fd = open(filepath, O_RDONLY);
+            if (fd == -1)
             {
-                struct iovec iov[2];
-                iov[0].iov_base = response_header;
-                iov[0].iov_len = header_len;
-                iov[1].iov_base = data_to_send;
-                iov[1].iov_len = size_to_send;
-                ssize_t written = writev(client_socket, iov, 2);
-                (void)written;
-            }
-            else
-            {
-                send(client_socket, response_header, header_len, 0);
-                
-                size_t total_sent = 0;
-                while (total_sent < size_to_send)
-                {
-                    ssize_t sent = send(client_socket, (char *)data_to_send + total_sent,
-                                        size_to_send - total_sent, 0);
-                    if (sent <= 0)
-                        break;
-                    total_sent += sent;
-                }
-            }
-
-            if (needs_free && compressed_data)
-                free(compressed_data);
-            release_cached_file(cached);
-            free(mime_type);
-            log_event(using_compression ? "Served file from cache (gzip)" : "Served file from cache");
-            goto done_serving;
-        }
-
-        int fd = open(filepath, O_RDONLY);
-        if (fd == -1)
-        {
-            const char *not_found_response = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
-            send(client_socket, not_found_response, strlen(not_found_response), 0);
-            free(mime_type);
-            if (if_none_match)
-                free(if_none_match);
-            if (if_modified_since)
-                free(if_modified_since);
-            log_event("File not found, sent 404.");
-        }
-        else
-        {
-            struct stat st;
-            if (fstat(fd, &st) == -1)
-            {
-                log_event("Error getting file size.");
-                const char *internal_server_error =
-                    "HTTP/1.1 500 Internal Server Error\r\n\r\nInternal Server Error";
-                send(client_socket, internal_server_error, strlen(internal_server_error), 0);
-                close(fd);
+                const char* not_found_response = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
+                send(client_socket, not_found_response, strlen(not_found_response), 0);
                 free(mime_type);
                 if (if_none_match)
                     free(if_none_match);
                 if (if_modified_since)
                     free(if_modified_since);
-                goto cleanup;
+                log_event("File not found, sent 404.");
             }
-
-            // Check If-None-Match for non-cached files
-            char current_etag[128];
-            snprintf(current_etag, sizeof(current_etag), "\"%ld-%ld\"", 
-                     (long)st.st_size, (long)st.st_mtime);
-            
-            if (if_none_match && strstr(if_none_match, current_etag + 1))
+            else
             {
-                // ETag matches - return 304
-                char response_304[512];
+                struct stat st;
+                if (fstat(fd, &st) == -1)
+                {
+                    log_event("Error getting file size.");
+                    const char* internal_server_error =
+                        "HTTP/1.1 500 Internal Server Error\r\n\r\nInternal Server Error";
+                    send(client_socket, internal_server_error, strlen(internal_server_error), 0);
+                    close(fd);
+                    free(mime_type);
+                    if (if_none_match)
+                        free(if_none_match);
+                    if (if_modified_since)
+                        free(if_modified_since);
+                    goto cleanup;
+                }
+
+                // Check If-None-Match for non-cached files
+                char current_etag[128];
+                snprintf(current_etag, sizeof(current_etag), "\"%ld-%ld\"",
+                         (long)st.st_size, (long)st.st_mtime);
+
+                if (if_none_match && strstr(if_none_match, current_etag + 1))
+                {
+                    // ETag matches - return 304
+                    char response_304[512];
+                    char last_modified[64];
+                    struct tm* tm_info = gmtime(&st.st_mtime);
+                    strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+
+                    int header_len = snprintf(response_304, sizeof(response_304),
+                                              "HTTP/1.1 304 Not Modified\r\n"
+                                              "ETag: %s\r\n"
+                                              "Last-Modified: %s\r\n"
+                                              "Cache-Control: public, max-age=86400\r\n"
+                                              "Keep-Alive: timeout=5, max=100\r\n"
+                                              "Connection: Keep-Alive\r\n"
+                                              "\r\n",
+                                              current_etag, last_modified);
+                    send(client_socket, response_304, header_len, 0);
+                    close(fd);
+                    free(mime_type);
+                    free(if_none_match);
+                    if (if_modified_since)
+                        free(if_modified_since);
+                    log_event("Served 304 Not Modified (file ETag match)");
+                    goto done_serving;
+                }
+
+                if (if_none_match)
+                    free(if_none_match);
+                if (if_modified_since)
+                    free(if_modified_since);
+
+                // Cache if eligible
+                if (st.st_size > 0 && st.st_size < MAX_MMAP_FILE_SIZE)
+                {
+                    cache_file_mmap(filepath, st.st_size, mime_type);
+                }
+
+                char response_header[2048];
+
+                // Format Last-Modified time
                 char last_modified[64];
-                struct tm *tm_info = gmtime(&st.st_mtime);
+                struct tm* tm_info = gmtime(&st.st_mtime);
                 strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
-                
-                int header_len = snprintf(response_304, sizeof(response_304),
-                                          "HTTP/1.1 304 Not Modified\r\n"
-                                          "ETag: %s\r\n"
-                                          "Last-Modified: %s\r\n"
+
+                int header_len = snprintf(response_header, sizeof(response_header),
+                                          "HTTP/1.1 200 OK\r\n"
+                                          "Content-Length: %ld\r\n"
+                                          "Content-Type: %s\r\n"
                                           "Cache-Control: public, max-age=86400\r\n"
+                                          "ETag: \"%ld-%ld\"\r\n"
+                                          "Last-Modified: %s\r\n"
+                                          "%s"
                                           "Keep-Alive: timeout=5, max=100\r\n"
                                           "Connection: Keep-Alive\r\n"
                                           "\r\n",
-                                          current_etag, last_modified);
-                send(client_socket, response_304, header_len, 0);
-                close(fd);
+                                          (long)st.st_size,
+                                          mime_type,
+                                          (long)st.st_size,
+                                          (long)st.st_mtime,
+                                          last_modified,
+                                          SECURITY_HEADERS);
+
                 free(mime_type);
-                free(if_none_match);
-                if (if_modified_since)
-                    free(if_modified_since);
-                log_event("Served 304 Not Modified (file ETag match)");
-                goto done_serving;
-            }
-            
-            if (if_none_match)
-                free(if_none_match);
-            if (if_modified_since)
-                free(if_modified_since);
 
-            // Cache if eligible
-            if (st.st_size > 0 && st.st_size < MAX_MMAP_FILE_SIZE)
-            {
-                cache_file_mmap(filepath, st.st_size, mime_type);
+                send(client_socket, response_header, header_len, 0);
+
+                // Use sendfile for zero-copy transfer
+                off_t offset = 0;
+                ssize_t sent = sendfile(client_socket, fd, &offset, st.st_size);
+                if (sent != st.st_size)
+                {
+                    log_event("Error sending file with sendfile()");
+                }
+
+                close(fd);
+                log_event("Served requested file successfully.");
             }
 
-            char response_header[2048];
-            
-            // Format Last-Modified time
-            char last_modified[64];
-            struct tm *tm_info = gmtime(&st.st_mtime);
-            strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
-            
-            int header_len = snprintf(response_header, sizeof(response_header),
-                                      "HTTP/1.1 200 OK\r\n"
-                                      "Content-Length: %ld\r\n"
-                                      "Content-Type: %s\r\n"
-                                      "Cache-Control: public, max-age=86400\r\n"
-                                      "ETag: \"%ld-%ld\"\r\n"
-                                      "Last-Modified: %s\r\n"
-                                      "%s"
-                                      "Keep-Alive: timeout=5, max=100\r\n"
-                                      "Connection: Keep-Alive\r\n"
-                                      "\r\n",
-                                      (long)st.st_size,
-                                      mime_type,
-                                      (long)st.st_size,
-                                      (long)st.st_mtime,
-                                      last_modified,
-                                      SECURITY_HEADERS);
-
-            free(mime_type);
-
-            send(client_socket, response_header, header_len, 0);
-
-            // Use sendfile for zero-copy transfer
-            off_t offset = 0;
-            ssize_t sent = sendfile(client_socket, fd, &offset, st.st_size);
-            if (sent != st.st_size)
-            {
-                log_event("Error sending file with sendfile()");
-            }
-
-            close(fd);
-            log_event("Served requested file successfully.");
+        done_serving:
+            continue;
         }
-
-    done_serving:
-        continue;
-    }
-    else if (bytes_received < 0)
-    {
-        break;
-    }
-    else if (bytes_received == 0)
-    {
-        break;
-    }
+        else if (bytes_received < 0)
+        {
+            break;
+        }
     }
 
     close(client_socket);
@@ -1075,12 +1070,12 @@ cleanup:
     pthread_exit(NULL);
 }
 
-void *handle_https_client(void *arg)
+void* handle_https_client(void* arg)
 {
-    int client_socket = *((int *)arg);
+    int client_socket = *((int*)arg);
     free(arg);
 
-    SSL *ssl = SSL_new(ssl_ctx);
+    SSL* ssl = SSL_new(ssl_ctx);
     if (!ssl)
     {
         log_event("SSL_new failed");
@@ -1114,7 +1109,7 @@ void *handle_https_client(void *arg)
     // Check if HTTP/2 was negotiated via ALPN
     if (config.enable_http2)
     {
-        const unsigned char *alpn_data = NULL;
+        const unsigned char* alpn_data = NULL;
         unsigned int alpn_len = 0;
 
         SSL_get0_alpn_selected(ssl, &alpn_data, &alpn_len);
@@ -1195,7 +1190,7 @@ void *handle_https_client(void *arg)
             SSL_write(ssl, response, strlen(response));
 
             // Create WebSocket connection context
-            ws_connection_t *ws_conn = malloc(sizeof(ws_connection_t));
+            ws_connection_t* ws_conn = malloc(sizeof(ws_connection_t));
             if (ws_conn)
             {
                 ws_conn->socket_fd = client_socket;
@@ -1226,7 +1221,7 @@ void *handle_https_client(void *arg)
     if (parse_request_line(buffer, method, url, protocol) != 0)
     {
         log_event("Invalid request line.");
-        const char *bad_request_response = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid Request";
+        const char* bad_request_response = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid Request";
         SSL_write(ssl, bad_request_response, strlen(bad_request_response));
         goto cleanup;
     }
@@ -1240,15 +1235,11 @@ void *handle_https_client(void *arg)
         log_event(protocol);
     }
 
-    // Check if client accepts gzip (case-insensitive)
-    int accepts_gzip = (stristr(buffer, "accept-encoding:") && 
-                       stristr(buffer, "gzip")) ? 1 : 0;
-
-    char *sanitized_url = sanitize_url(url);
+    char* sanitized_url = sanitize_url(url);
     if (!sanitized_url)
     {
         log_event("Blocked malicious URL");
-        const char *forbidden_response = "HTTP/1.1 403 Forbidden\r\n\r\nAccess Denied";
+        const char* forbidden_response = "HTTP/1.1 403 Forbidden\r\n\r\nAccess Denied";
         SSL_write(ssl, forbidden_response, strlen(forbidden_response));
         goto cleanup;
     }
@@ -1256,27 +1247,27 @@ void *handle_https_client(void *arg)
     char client_ip[INET_ADDRSTRLEN];
     struct sockaddr_in addr;
     socklen_t addr_len = sizeof(addr);
-    getpeername(client_socket, (struct sockaddr *)&addr, &addr_len);
+    getpeername(client_socket, (struct sockaddr*)&addr, &addr_len);
     inet_ntop(AF_INET, &addr.sin_addr, client_ip, sizeof(client_ip));
 
     if (!check_rate_limit(client_ip))
     {
         log_event("Rate limit exceeded for IP:");
         log_event(client_ip);
-        const char *rate_limit_response = "HTTP/1.1 429 Too Many Requests\r\n\r\nRate limit exceeded";
+        const char* rate_limit_response = "HTTP/1.1 429 Too Many Requests\r\n\r\nRate limit exceeded";
         SSL_write(ssl, rate_limit_response, strlen(rate_limit_response));
         goto cleanup;
     }
 
     char filepath[512];
     int written = snprintf(filepath, sizeof(filepath), "%s%s", config.www_path,
-             (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
+                           (*sanitized_url == '/' && sanitized_url[1] == '\0') ? "/index.html" : sanitized_url);
     free(sanitized_url);
-    
+
     if (written < 0 || written >= (int)sizeof(filepath))
     {
         log_event("Path too long, potential buffer overflow attempt (HTTPS)");
-        const char *error_response = "HTTP/1.1 414 URI Too Long\r\n\r\n";
+        const char* error_response = "HTTP/1.1 414 URI Too Long\r\n\r\n";
         SSL_write(ssl, error_response, strlen(error_response));
         goto cleanup;
     }
@@ -1284,29 +1275,29 @@ void *handle_https_client(void *arg)
     log_event(filepath);
 
     // Get MIME type
-    char *mime_type = get_mime_type(filepath);
+    char* mime_type = get_mime_type(filepath);
 
     // Check for conditional request headers
-    char *if_none_match = extract_header_value(buffer, "If-None-Match");
-    char *if_modified_since = extract_header_value(buffer, "If-Modified-Since");
+    char* if_none_match = extract_header_value(buffer, "If-None-Match");
+    char* if_modified_since = extract_header_value(buffer, "If-Modified-Since");
 
     // Try to get file from cache first
-    mmap_cache_entry_t *cached = get_cached_file(filepath);
+    mmap_cache_entry_t* cached = get_cached_file(filepath);
 
     if (cached)
     {
         // Generate current ETag
         char current_etag[128];
-        snprintf(current_etag, sizeof(current_etag), "\"%zu-%ld\"", 
+        snprintf(current_etag, sizeof(current_etag), "\"%zu-%ld\"",
                  cached->size, cached->last_access);
-        
+
         // Check If-None-Match (ETag validation)
         if (if_none_match)
         {
             char stored_etag[128];
-            snprintf(stored_etag, sizeof(stored_etag), "%zu-%ld", 
+            snprintf(stored_etag, sizeof(stored_etag), "%zu-%ld",
                      cached->size, cached->last_access);
-            
+
             if (strstr(if_none_match, stored_etag))
             {
                 // ETag matches - return 304 Not Modified
@@ -1328,17 +1319,17 @@ void *handle_https_client(void *arg)
                 goto cleanup;
             }
         }
-        
+
         free(if_none_match);
         free(if_modified_since);
-        
+
         // Check if we should compress
-        unsigned char *compressed_data = NULL;
+        unsigned char* compressed_data = NULL;
         size_t compressed_size = 0;
         int using_compression = 0;
         int needs_free = 0;
-        
-        if (accepts_gzip && should_compress(cached->mime_type) && cached->size > 1024)
+
+        if (should_compress(cached->mime_type) && cached->size > 1024)
         {
             // Check if we have cached compressed version
             if (cached->compressed_data && cached->compressed_size > 0)
@@ -1350,12 +1341,12 @@ void *handle_https_client(void *arg)
             }
             else
             {
-                compressed_data = gzip_compress((unsigned char *)cached->mmap_data, cached->size, &compressed_size);
+                compressed_data = gzip_compress((unsigned char*)cached->mmap_data, cached->size, &compressed_size);
                 if (compressed_data && compressed_size < cached->size * 0.9)
                 {
                     using_compression = 1;
                     needs_free = 1;
-                    
+
                     // Cache the compressed version
                     cached->compressed_data = malloc(compressed_size);
                     if (cached->compressed_data)
@@ -1375,12 +1366,12 @@ void *handle_https_client(void *arg)
 
         // Serve from cache with optional compression
         char response_header[2048];
-        
+
         // Format Last-Modified time
         char last_modified[64];
-        struct tm *tm_info = gmtime(&cached->last_access);
+        struct tm* tm_info = gmtime(&cached->last_access);
         strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
-        
+
         int header_len = snprintf(response_header, sizeof(response_header),
                                   "HTTP/1.1 200 OK\r\n"
                                   "Content-Length: %zu\r\n"
@@ -1404,14 +1395,14 @@ void *handle_https_client(void *arg)
         SSL_write(ssl, response_header, header_len);
 
         // Send compressed or uncompressed data
-        void *data_to_send = using_compression ? compressed_data : cached->mmap_data;
+        void* data_to_send = using_compression ? compressed_data : cached->mmap_data;
         size_t size_to_send = using_compression ? compressed_size : cached->size;
-        
+
         size_t total_sent = 0;
         while (total_sent < size_to_send)
         {
             int to_send = (size_to_send - total_sent > 65536) ? 65536 : (size_to_send - total_sent);
-            int sent = SSL_write(ssl, (char *)data_to_send + total_sent, to_send);
+            int sent = SSL_write(ssl, (char*)data_to_send + total_sent, to_send);
             if (sent <= 0)
                 break;
             total_sent += sent;
@@ -1430,7 +1421,7 @@ void *handle_https_client(void *arg)
     if (fd == -1)
     {
         log_event("File open failed");
-        const char *not_found_response = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
+        const char* not_found_response = "HTTP/1.1 404 Not Found\r\n\r\nFile Not Found";
         SSL_write(ssl, not_found_response, strlen(not_found_response));
         free(mime_type);
         if (if_none_match)
@@ -1444,7 +1435,7 @@ void *handle_https_client(void *arg)
     if (fstat(fd, &st) == -1)
     {
         log_event("Error getting file size.");
-        const char *internal_server_error =
+        const char* internal_server_error =
             "HTTP/1.1 500 Internal Server Error\r\n\r\nInternal Server Error";
         SSL_write(ssl, internal_server_error, strlen(internal_server_error));
         close(fd);
@@ -1458,17 +1449,17 @@ void *handle_https_client(void *arg)
 
     // Check If-None-Match for non-cached files
     char current_etag[128];
-    snprintf(current_etag, sizeof(current_etag), "\"%ld-%ld\"", 
+    snprintf(current_etag, sizeof(current_etag), "\"%ld-%ld\"",
              (long)st.st_size, (long)st.st_mtime);
-    
+
     if (if_none_match && strstr(if_none_match, current_etag + 1))
     {
         // ETag matches - return 304
         char response_304[512];
         char last_modified[64];
-        struct tm *tm_info = gmtime(&st.st_mtime);
+        struct tm* tm_info = gmtime(&st.st_mtime);
         strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
-        
+
         int header_len = snprintf(response_304, sizeof(response_304),
                                   "HTTP/1.1 304 Not Modified\r\n"
                                   "ETag: %s\r\n"
@@ -1486,7 +1477,7 @@ void *handle_https_client(void *arg)
         log_event("Served 304 Not Modified via HTTPS (file ETag match)");
         goto cleanup;
     }
-    
+
     if (if_none_match)
         free(if_none_match);
     if (if_modified_since)
@@ -1499,12 +1490,12 @@ void *handle_https_client(void *arg)
     }
 
     char response_header[2048];
-    
+
     // Format Last-Modified time
     char last_modified[64];
-    struct tm *tm_info = gmtime(&st.st_mtime);
+    struct tm* tm_info = gmtime(&st.st_mtime);
     strftime(last_modified, sizeof(last_modified), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
-    
+
     int header_len = snprintf(response_header, sizeof(response_header),
                               "HTTP/1.1 200 OK\r\n"
                               "Content-Length: %ld\r\n"
@@ -1528,7 +1519,7 @@ void *handle_https_client(void *arg)
     SSL_write(ssl, response_header, header_len);
 
     // Use larger buffer for better performance
-    char *file_buffer = get_buffer_from_pool(16384);
+    char* file_buffer = get_buffer_from_pool(16384);
     ssize_t bytes_read;
     while ((bytes_read = read(fd, file_buffer, 16384)) > 0)
     {
@@ -1543,11 +1534,9 @@ void *handle_https_client(void *arg)
     log_event("Served requested file successfully.");
 
 cleanup:
-    if (ssl)
-    {
-        SSL_shutdown(ssl);
-        SSL_free(ssl);
-    }
+
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
     close(client_socket);
     pthread_exit(NULL);
 }
@@ -1638,7 +1627,7 @@ void shutdown_server()
     log_event("Server shutdown completed.");
 }
 
-int parse_request_line(char *request_buffer, char *method, char *url, char *protocol)
+int parse_request_line(char* request_buffer, char* method, char* url, char* protocol)
 {
     if (!request_buffer || !method || !url || !protocol)
         return -1;
@@ -1648,12 +1637,12 @@ int parse_request_line(char *request_buffer, char *method, char *url, char *prot
     protocol[0] = '\0';
 
     char *saveptr1, *saveptr2;
-    char *line = strtok_r(request_buffer, "\r\n", &saveptr1);
+    char* line = strtok_r(request_buffer, "\r\n", &saveptr1);
 
     if (line == NULL || strlen(line) == 0)
         return -1;
 
-    char *token = strtok_r(line, " ", &saveptr2);
+    char* token = strtok_r(line, " ", &saveptr2);
     if (token == NULL || strlen(token) > 7)
         return -1;
     strncpy(method, token, 7);
@@ -1722,7 +1711,7 @@ void set_cpu_affinity(int thread_id)
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
         CPU_SET(thread_id % num_cpus, &cpuset);
-        
+
         if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) != 0)
         {
             log_event("Warning: Failed to set CPU affinity");
@@ -1731,35 +1720,35 @@ void set_cpu_affinity(int thread_id)
 #endif
 }
 
-void *worker_thread(void *arg)
+void* worker_thread(void* arg)
 {
-    int thread_id = *((int *)arg);
+    int thread_id = *((int*)arg);
     free(arg);
-    
+
     // Set CPU affinity for this worker thread
     set_cpu_affinity(thread_id);
-    
+
     char log_msg[256];
     int num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
     snprintf(log_msg, sizeof(log_msg), "Worker thread %d started on CPU %d", thread_id, thread_id % num_cpus);
     log_event(log_msg);
-    
+
     while (workers_running)
     {
-        connection_task_t *task = dequeue_task(&worker_queue);
-        
+        connection_task_t* task = dequeue_task(&worker_queue);
+
         if (!task || !workers_running)
         {
             break;
         }
-        
+
         // Optimize socket before handling
         optimize_socket_for_send(task->socket_fd);
-        
+
         // Handle the connection based on type
         if (task->is_https)
         {
-            int *socket_ptr = malloc(sizeof(int));
+            int* socket_ptr = malloc(sizeof(int));
             if (socket_ptr)
             {
                 *socket_ptr = task->socket_fd;
@@ -1768,17 +1757,17 @@ void *worker_thread(void *arg)
         }
         else
         {
-            int *socket_ptr = malloc(sizeof(int));
+            int* socket_ptr = malloc(sizeof(int));
             if (socket_ptr)
             {
                 *socket_ptr = task->socket_fd;
                 handle_http_client(socket_ptr);
             }
         }
-        
+
         free(task);
     }
-    
+
     return NULL;
 }
 
@@ -1790,10 +1779,10 @@ void initialize_thread_pool()
     {
         log_event("Failed to allocate thread pool");
     }
-    
+
     // Initialize worker queue
     init_task_queue(&worker_queue);
-    
+
     // Create worker threads
     int num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
     num_worker_threads = (num_cpus > 0) ? num_cpus * 2 : 8;
@@ -1801,17 +1790,17 @@ void initialize_thread_pool()
     {
         num_worker_threads = MAX_THREAD_POOL_SIZE;
     }
-    
+
     worker_threads = calloc(num_worker_threads, sizeof(pthread_t));
     if (!worker_threads)
     {
         log_event("Failed to allocate worker threads");
         return;
     }
-    
+
     for (int i = 0; i < num_worker_threads; i++)
     {
-        int *thread_id = malloc(sizeof(int));
+        int* thread_id = malloc(sizeof(int));
         if (thread_id)
         {
             *thread_id = i;
@@ -1822,21 +1811,21 @@ void initialize_thread_pool()
             }
         }
     }
-    
+
     char msg[256];
     snprintf(msg, sizeof(msg), "Initialized %d worker threads on %d CPUs", num_worker_threads, num_cpus);
     log_event(msg);
 }
 
 // Case-insensitive strstr
-char *stristr(const char *haystack, const char *needle)
+char* stristr(const char* haystack, const char* needle)
 {
     if (!haystack || !needle) return NULL;
-    
+
     size_t needle_len = strlen(needle);
-    if (needle_len == 0) return (char *)haystack;
-    
-    for (const char *p = haystack; *p; p++)
+    if (needle_len == 0) return (char*)haystack;
+
+    for (const char* p = haystack; *p; p++)
     {
         if (tolower(*p) == tolower(*needle))
         {
@@ -1847,23 +1836,23 @@ char *stristr(const char *haystack, const char *needle)
                     break;
             }
             if (i == needle_len)
-                return (char *)p;
+                return (char*)p;
         }
     }
     return NULL;
 }
 
 // Check if MIME type should be compressed
-int should_compress(const char *mime_type)
+int should_compress(const char* mime_type)
 {
     return (strstr(mime_type, "text/") != NULL ||
-            strstr(mime_type, "application/javascript") != NULL ||
-            strstr(mime_type, "application/json") != NULL ||
-            strstr(mime_type, "application/xml") != NULL);
+        strstr(mime_type, "application/javascript") != NULL ||
+        strstr(mime_type, "application/json") != NULL ||
+        strstr(mime_type, "application/xml") != NULL);
 }
 
 // Gzip compress data
-unsigned char *gzip_compress(const unsigned char *data, size_t size, size_t *compressed_size)
+unsigned char* gzip_compress(const unsigned char* data, size_t size, size_t* compressed_size)
 {
     z_stream stream = {0};
     stream.zalloc = Z_NULL;
@@ -1876,7 +1865,7 @@ unsigned char *gzip_compress(const unsigned char *data, size_t size, size_t *com
     }
 
     size_t max_compressed = deflateBound(&stream, size);
-    unsigned char *compressed = malloc(max_compressed);
+    unsigned char* compressed = malloc(max_compressed);
     if (!compressed)
     {
         deflateEnd(&stream);
@@ -1884,7 +1873,7 @@ unsigned char *gzip_compress(const unsigned char *data, size_t size, size_t *com
     }
 
     stream.avail_in = size;
-    stream.next_in = (unsigned char *)data;
+    stream.next_in = (unsigned char*)data;
     stream.avail_out = max_compressed;
     stream.next_out = compressed;
 
@@ -1905,7 +1894,7 @@ int main()
 {
     // Initialize default config first
     init_config(&config);
-    
+
     if (load_config("server.conf", &config) != 0)
     {
         printf("Using default configuration.\n");
@@ -1915,10 +1904,13 @@ int main()
 
     // Initialize logging system based on config
     LogConfig log_cfg = {
-        .level = (config.log_mode == LOG_MODE_OFF) ? LOG_LEVEL_OFF :
-                 (config.log_mode == LOG_MODE_DEBUG) ? LOG_LEVEL_DEBUG :
-                 (config.log_mode == LOG_MODE_ADVANCED) ? LOG_LEVEL_TRACE :
-                 LOG_LEVEL_INFO,
+        .level = (config.log_mode == LOG_MODE_OFF)
+                     ? LOG_LEVEL_OFF
+                     : (config.log_mode == LOG_MODE_DEBUG)
+                     ? LOG_LEVEL_DEBUG
+                     : (config.log_mode == LOG_MODE_ADVANCED)
+                     ? LOG_LEVEL_TRACE
+                     : LOG_LEVEL_INFO,
         .categories = LOG_CAT_ALL,
         .format = LOG_FORMAT_PLAIN,
         .console_output = true,
@@ -1935,9 +1927,9 @@ int main()
 
     // Calculate dynamic rate limit based on system resources
     MAX_REQUESTS_DYNAMIC = calculate_dynamic_rate_limit();
-    
+
     char rate_limit_msg[256];
-    snprintf(rate_limit_msg, sizeof(rate_limit_msg), 
+    snprintf(rate_limit_msg, sizeof(rate_limit_msg),
              "Dynamic rate limit set to %d requests per IP per minute", MAX_REQUESTS_DYNAMIC);
     LOG_INFO(LOG_CAT_GENERAL, "%s", rate_limit_msg);
 
@@ -2009,9 +2001,9 @@ int main()
 }
 
 
-char *get_mime_type(const char *filepath)
+char* get_mime_type(const char* filepath)
 {
-    const char *ext = strrchr(filepath, '.');
+    const char* ext = strrchr(filepath, '.');
     if (!ext)
         return strdup("application/octet-stream");
 
@@ -2055,14 +2047,14 @@ char *get_mime_type(const char *filepath)
         return strdup("application/octet-stream");
     }
 
-    const char *mime = magic_file(magic, filepath);
-    char *result = mime ? strdup(mime) : strdup("application/octet-stream");
+    const char* mime = magic_file(magic, filepath);
+    char* result = mime ? strdup(mime) : strdup("application/octet-stream");
 
     magic_close(magic);
     return result;
 }
 
-char *sanitize_url(const char *url)
+char* sanitize_url(const char* url)
 {
     if (!url)
         return NULL;
@@ -2071,7 +2063,7 @@ char *sanitize_url(const char *url)
     if (url_len == 0 || url_len > 2048)
         return NULL;
 
-    char *sanitized = calloc(1, url_len + 2);
+    char* sanitized = calloc(1, url_len + 2);
     if (!sanitized)
     {
         log_event("Memory allocation failed in sanitize_url");
@@ -2123,7 +2115,8 @@ char *sanitize_url(const char *url)
         {
             consecutive_dots++;
             if (consecutive_dots > 2)
-            { // Too many dots
+            {
+                // Too many dots
                 free(sanitized);
                 return NULL;
             }
@@ -2151,15 +2144,15 @@ char *sanitize_url(const char *url)
             {
                 char hex[3] = {url[i + 1], url[i + 2], 0};
                 int decoded = (int)strtol(hex, NULL, 16);
-                
+
                 // Block encoded directory traversal characters and control characters
-                if (decoded == '.' || decoded == '/' || decoded == '\\' || 
+                if (decoded == '.' || decoded == '/' || decoded == '\\' ||
                     decoded == 0x00 || decoded < 0x20 || decoded > 0x7E)
                 {
                     free(sanitized);
                     return NULL;
                 }
-                
+
                 sanitized[j++] = (char)decoded;
                 i += 2;
             }
@@ -2194,7 +2187,7 @@ char *sanitize_url(const char *url)
     return sanitized;
 }
 
-int check_rate_limit(const char *ip)
+int check_rate_limit(const char* ip)
 {
     pthread_mutex_lock(&rate_limit_mutex);
 
@@ -2240,7 +2233,7 @@ int check_rate_limit(const char *ip)
     }
 
     // Add new entry
-    RateLimit *new_limits = realloc(rate_limits, (rate_limit_count + 1) * sizeof(RateLimit));
+    RateLimit* new_limits = realloc(rate_limits, (rate_limit_count + 1) * sizeof(RateLimit));
     if (!new_limits)
     {
         pthread_mutex_unlock(&rate_limit_mutex);
@@ -2267,12 +2260,12 @@ void cleanup_thread_pool()
 {
     // Signal worker threads to stop
     workers_running = 0;
-    
+
     // Wake up all waiting workers
     pthread_mutex_lock(&worker_queue.mutex);
     pthread_cond_broadcast(&worker_queue.cond);
     pthread_mutex_unlock(&worker_queue.mutex);
-    
+
     // Join all worker threads
     if (worker_threads)
     {
@@ -2283,10 +2276,10 @@ void cleanup_thread_pool()
         free(worker_threads);
         worker_threads = NULL;
     }
-    
+
     // Cleanup worker queue
     destroy_task_queue(&worker_queue);
-    
+
     // Cleanup old thread pool structure if exists
     if (!thread_pool)
     {
@@ -2294,49 +2287,49 @@ void cleanup_thread_pool()
     }
 
     pthread_mutex_lock(&thread_pool_mutex);
-    
-    ThreadInfo *temp = thread_pool;
+
+    ThreadInfo* temp = thread_pool;
     thread_pool = NULL;
     thread_pool_size = 0;
-    
+
     pthread_mutex_unlock(&thread_pool_mutex);
-    
+
     // Free after releasing lock and nullifying pointer
     free(temp);
 }
 
 // Extract header value from HTTP request
-char *extract_header_value(const char *request, const char *header_name)
+char* extract_header_value(const char* request, const char* header_name)
 {
-    char *header_start = stristr(request, header_name);
+    char* header_start = stristr(request, header_name);
     if (!header_start)
         return NULL;
-    
+
     header_start += strlen(header_name);
     while (*header_start == ' ' || *header_start == ':')
         header_start++;
-    
-    char *header_end = strstr(header_start, "\r\n");
+
+    char* header_end = strstr(header_start, "\r\n");
     if (!header_end)
         return NULL;
-    
+
     size_t value_len = header_end - header_start;
     if (value_len == 0 || value_len > 512)
         return NULL;
-    
-    char *value = malloc(value_len + 1);
+
+    char* value = malloc(value_len + 1);
     if (!value)
         return NULL;
-    
+
     memcpy(value, header_start, value_len);
     value[value_len] = '\0';
-    
+
     // Trim trailing whitespace
     while (value_len > 0 && (value[value_len - 1] == ' ' || value[value_len - 1] == '\t'))
     {
         value[--value_len] = '\0';
     }
-    
+
     return value;
 }
 
@@ -2347,43 +2340,43 @@ int calculate_dynamic_rate_limit(void)
     int cpu_cores = sysconf(_SC_NPROCESSORS_ONLN);
     if (cpu_cores <= 0)
         cpu_cores = 4;
-    
+
     // Get available memory
     long pages = sysconf(_SC_PHYS_PAGES);
     long page_size = sysconf(_SC_PAGE_SIZE);
     long ram_mb = (pages * page_size) / (1024 * 1024);
-    
+
     // Formula: base_rate * (cpu_factor + ram_factor) * connection_factor
     // This allows more requests on powerful systems
     int base_rate = 100; // Base requests per IP per minute
-    
+
     // CPU factor: 1.0 to 4.0 (1-16+ cores)
     double cpu_factor = 1.0 + (cpu_cores / 4.0);
     if (cpu_factor > 4.0)
         cpu_factor = 4.0;
-    
+
     // RAM factor: 1.0 to 3.0 (1GB to 16GB+)
     double ram_factor = 1.0 + ((ram_mb / 4096.0) * 2.0);
     if (ram_factor > 3.0)
         ram_factor = 3.0;
-    
+
     // Connection capacity factor based on max_connections
     double conn_factor = 1.0 + (config.max_connections / 2048.0);
     if (conn_factor > 2.0)
         conn_factor = 2.0;
-    
+
     int dynamic_limit = (int)(base_rate * cpu_factor * ram_factor * conn_factor);
-    
+
     // Ensure reasonable bounds
     if (dynamic_limit < 200)
         dynamic_limit = 200;
     if (dynamic_limit > 10000)
         dynamic_limit = 10000;
-    
+
     return dynamic_limit;
 }
 
-void cache_file(const char *path, const char *data, size_t size, const char *mime_type)
+void cache_file(const char* path, const char* data, size_t size, const char* mime_type)
 {
     pthread_mutex_lock(&cache_mutex);
 

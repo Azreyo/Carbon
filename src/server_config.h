@@ -4,7 +4,8 @@
 #include <stdbool.h>
 
 // Log modes
-typedef enum {
+typedef enum
+{
     LOG_MODE_OFF = 0,
     LOG_MODE_CLASSIC = 1,
     LOG_MODE_DEBUG = 2,
@@ -20,7 +21,7 @@ typedef struct
     bool running;
     bool automatic_startup;
     char server_name[256];
-    LogMode log_mode;           // Replaces verbose - supports off/classic/debug/advanced
+    LogMode log_mode; // Replaces verbose - supports off/classic/debug/advanced
     bool enable_http2;
     bool enable_websocket;
     char www_path[256];
@@ -29,8 +30,8 @@ typedef struct
     char ssl_key_path[256];
 } ServerConfig;
 
-int load_config(const char *filename, ServerConfig *config);
-void init_config(ServerConfig *config);
-void log_event(const char *message);
+int load_config(const char* filename, ServerConfig* config);
+void init_config(ServerConfig* config);
+void log_event(const char* message);
 
 #endif

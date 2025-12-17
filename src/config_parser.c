@@ -15,7 +15,7 @@ typedef enum
     CONFIG_RUNNING,
     CONFIG_SERVER_NAME,
     CONFIG_LOG_MODE,
-    CONFIG_VERBOSE,  // Keep for backwards compatibility
+    CONFIG_VERBOSE, // Keep for backwards compatibility
     CONFIG_ENABLE_HTTP2,
     CONFIG_ENABLE_WEBSOCKET,
     CONFIG_WWW_PATH,
@@ -23,14 +23,11 @@ typedef enum
     CONFIG_SSL_CERT_PATH,
     CONFIG_SSL_KEY_PATH,
     CONFIG_UNKNOWN
-
 } ConfigKey;
 
 // Trim whitespace from both ends of a string
-static char *trim_whitespace(char *str)
+static char* trim_whitespace(char* str)
 {
-    char *end;
-
     // Trim leading space
     while (isspace((unsigned char)*str))
         str++;
@@ -39,7 +36,7 @@ static char *trim_whitespace(char *str)
         return str;
 
     // Trim trailing space
-    end = str + strlen(str) - 1;
+    char* end = str + strlen(str) - 1;
     while (end > str && isspace((unsigned char)*end))
         end--;
 
@@ -48,7 +45,7 @@ static char *trim_whitespace(char *str)
 }
 
 // Parse a boolean value (true/false, yes/no, on/off, 1/0)
-static bool parse_bool(const char *value)
+static bool parse_bool(const char* value)
 {
     if (strcasecmp(value, "true") == 0 ||
         strcasecmp(value, "yes") == 0 ||
@@ -59,8 +56,9 @@ static bool parse_bool(const char *value)
     }
     return false;
 }
+
 // Parse log mode value (off/classic/debug/advanced)
-static LogMode parse_log_mode(const char *value)
+static LogMode parse_log_mode(const char* value)
 {
     if (strcasecmp(value, "off") == 0 || strcmp(value, "0") == 0)
         return LOG_MODE_OFF;
@@ -71,15 +69,15 @@ static LogMode parse_log_mode(const char *value)
         return LOG_MODE_DEBUG;
     if (strcasecmp(value, "advanced") == 0)
         return LOG_MODE_ADVANCED;
-    return LOG_MODE_CLASSIC;  // Default
+    return LOG_MODE_CLASSIC; // Default
 }
 
 // Map string to enum
-static ConfigKey get_config_key(const char *key)
+static ConfigKey get_config_key(const char* key)
 {
     static const struct
     {
-        const char *name;
+        const char* name;
         ConfigKey key;
     } key_map[] = {
         {"port", CONFIG_PORT},
@@ -89,7 +87,7 @@ static ConfigKey get_config_key(const char *key)
         {"running", CONFIG_RUNNING},
         {"server_name", CONFIG_SERVER_NAME},
         {"log_mode", CONFIG_LOG_MODE},
-        {"verbose", CONFIG_VERBOSE},  // Keep for backwards compatibility
+        {"verbose", CONFIG_VERBOSE}, // Keep for backwards compatibility
         {"enable_http2", CONFIG_ENABLE_HTTP2},
         {"enable_websocket", CONFIG_ENABLE_WEBSOCKET},
         {"www_path", CONFIG_WWW_PATH},
@@ -109,15 +107,15 @@ static ConfigKey get_config_key(const char *key)
     return CONFIG_UNKNOWN;
 }
 
-int load_config(const char *filename, ServerConfig *config)
+int load_config(const char* filename, ServerConfig* config)
 {
     if (!filename || strlen(filename) > 4096)
     {
         fprintf(stderr, "Invalid config filename\n");
         return 1;
     }
-    
-    FILE *fp = fopen(filename, "r");
+
+    FILE* fp = fopen(filename, "r");
     if (!fp)
     {
         perror("Error opening config file");
@@ -135,7 +133,7 @@ int load_config(const char *filename, ServerConfig *config)
         line[strcspn(line, "\r\n")] = 0;
 
         // Trim whitespace
-        char *trimmed = trim_whitespace(line);
+        char* trimmed = trim_whitespace(line);
 
         // Skip empty lines and comments
         if (trimmed[0] == '\0' || trimmed[0] == '#' || trimmed[0] == ';')
@@ -144,7 +142,7 @@ int load_config(const char *filename, ServerConfig *config)
         }
 
         // Find the delimiter (= or space)
-        char *delim = strchr(trimmed, '=');
+        char* delim = strchr(trimmed, '=');
         if (!delim)
         {
             // Try space as delimiter
@@ -159,8 +157,8 @@ int load_config(const char *filename, ServerConfig *config)
 
         // Split into key and value
         *delim = '\0';
-        char *key = trim_whitespace(trimmed);
-        char *value = trim_whitespace(delim + 1);
+        char* key = trim_whitespace(trimmed);
+        char* value = trim_whitespace(delim + 1);
 
         // Remove quotes from value if present
         if ((value[0] == '"' || value[0] == '\'') &&
@@ -173,7 +171,7 @@ int load_config(const char *filename, ServerConfig *config)
         switch (get_config_key(key))
         {
         case CONFIG_PORT:
-            config->port = atoi(value);
+            config->port = strcoll(value, value);
             printf("load_config: port = %d\n", config->port);
             break;
 
@@ -189,7 +187,7 @@ int load_config(const char *filename, ServerConfig *config)
             break;
 
         case CONFIG_MAX_THREADS:
-            config->max_threads = atoi(value);
+            config->max_threads = strcoll(value, value);
             printf("load_config: max_threads = %d\n", config->max_threads);
             break;
 
@@ -210,21 +208,28 @@ int load_config(const char *filename, ServerConfig *config)
             if (strcmp(config->server_name, "Your_domain/IP") == 0)
             {
                 fprintf(stderr, "WARNING: server_name is set to default\n"
-                                "Please set server_name in server.conf to the server's IP address or domain name for proper operation.\n");
+                        "Please set server_name in server.conf to the server's IP address or domain name for proper operation.\n");
             }
             break;
         case CONFIG_LOG_MODE:
             config->log_mode = parse_log_mode(value);
-            printf("load_config: log_mode = %s\n", 
-                   config->log_mode == LOG_MODE_OFF ? "off" :
-                   config->log_mode == LOG_MODE_DEBUG ? "debug" :
-                   config->log_mode == LOG_MODE_ADVANCED ? "advanced" : "classic");
+            printf("load_config: log_mode = %s\n",
+                   config->log_mode == LOG_MODE_OFF
+                       ? "off"
+                       : config->log_mode == LOG_MODE_DEBUG
+                       ? "debug"
+                       : config->log_mode == LOG_MODE_ADVANCED
+                       ? "advanced"
+                       : "classic");
             break;
         case CONFIG_VERBOSE:
             // Backwards compatibility: map verbose boolean to log_mode
-            if (parse_bool(value)) {
+            if (parse_bool(value))
+            {
                 config->log_mode = LOG_MODE_CLASSIC;
-            } else {
+            }
+            else
+            {
                 config->log_mode = LOG_MODE_OFF;
             }
             printf("load_config: verbose (legacy) -> log_mode = %s\n",
@@ -256,7 +261,7 @@ int load_config(const char *filename, ServerConfig *config)
             break;
 
         case CONFIG_MAX_CONNECTIONS:
-            config->max_connections = atoi(value);
+            config->max_connections = strcoll(value, value);
             printf("load_config: max_connections: = %d\n", config->max_connections);
 
             break;
