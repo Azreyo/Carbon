@@ -15,6 +15,10 @@
 
 > **⚠️ WORK IN PROGRESS**: This project is currently under active development and is not yet a full release. Features may be incomplete, APIs may change, and bugs may be present. Use in production environments at your own risk.
 
+## Please read before proceeding
+
+> **❗ANNOUNCEMENT**: This project will no longer be updated on GitHub. In the near future, a link to a self-hosted Git repository will be published on the project website. Ongoing development and updates will continue there, and Carbon support will be added. The decision was made due to GitHub increasingly placing core features behind paid plans.
+
 [Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [Usage](#-usage) • [Contributing](#-contributing) • [License](#-license) •  [Documentation](DOCUMENTATION.md)
 
 </div>
